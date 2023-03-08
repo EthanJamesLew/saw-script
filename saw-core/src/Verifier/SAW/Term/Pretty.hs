@@ -111,7 +111,23 @@ data PPOpts = PPOpts { ppBase :: Int
                      , ppMinSharing :: Int
                      , ppMemoStyle :: MemoStyle }
 
-data MemoStyle = HashIncremental Int | Hash Int | Incremental
+-- | How should you display memoization variables?
+--
+-- Note: actual text stylization is the province of 'ppMemoVar', this just
+-- describes the semantic information 'ppMemoVar' should be prepared to display.
+data MemoStyle
+  = Incremental
+  -- ^ 'Incremental' says to display a term's memoization variable with the
+  -- value of a counter that increments after a term is memoized. The first
+  -- memoized term will be displayed with '1', the second with '2', etc.
+  | Hash Int
+  -- ^ 'Hash i' says to display a term's memoization variable with the first 'i'
+  -- digits of the term's hash.
+  | HashIncremental Int
+  -- ^ 'HashIncremental i' says to display a term's memoization variable with
+  -- _both_ the first 'i' digits of the term's hash _and_ the value of the
+  -- counter described in 'Incremental'.
+
 
 -- | Default options for pretty-printing
 defaultPPOpts :: PPOpts
@@ -211,9 +227,18 @@ consVarNaming (VarNaming names) name =
 -- * Pretty-printing monad
 --------------------------------------------------------------------------------
 
--- | Memoization variables, which are like deBruijn index variables but for
--- terms that we are memoizing during printing
-data MemoVar = MemoVar { memoFresh :: Int, memoHash :: Int }
+-- | Memoization variables contain several pieces of information pertaining to
+-- the term they bind. What is displayed when they're printed is governed by the
+-- 'ppMemoStyle' field of 'PPOpts', in tandem with 'ppMemoVar'.
+data MemoVar =
+  MemoVar
+    {
+      -- | A unique value - like a deBruijn index, but evinced only during
+      -- printing when a term is to be memoized.
+      memoFresh :: Int,
+      -- | A likely-unique value - the hash of the term this 'MemoVar'
+      -- represents.
+      memoHash :: Int }
 
 -- | The local state used by pretty-printing computations
 data PPState =

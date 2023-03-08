@@ -131,9 +131,14 @@ data MemoStyle
 
 -- | Default options for pretty-printing
 defaultPPOpts :: PPOpts
-defaultPPOpts = PPOpts { ppBase = 10, ppColor = False,
-                         ppShowLocalNames = True, ppMaxDepth = Nothing, ppMinSharing = 2,
-                         ppMemoStyle = Incremental }
+defaultPPOpts =
+  PPOpts
+    { ppBase = 10
+    , ppColor = False
+    , ppShowLocalNames = True
+    , ppMaxDepth = Nothing
+    , ppMinSharing = 2
+    , ppMemoStyle = Incremental }
 
 -- | Options for printing with a maximum depth
 depthPPOpts :: Int -> PPOpts
@@ -329,21 +334,12 @@ withMemoVar :: Bool -> TermIndex -> Int -> (MemoVar -> PPM a) -> PPM a
 withMemoVar global_p termIdx termHash f =
   do fresh <- asks ppMemoFresh
      let memoVar = MemoVar { memoFresh = fresh, memoHash = termHash }
-     local (freshen . bind memoVar) (f memoVar)
+     local (refresh . bind memoVar) (f memoVar)
   where
-    freshen st@PPState{..} = st { ppMemoFresh = ppMemoFresh + 1 }
-    bind mv st@PPState{..}
-      | global_p = st { ppGlobalMemoTable = IntMap.insert termIdx mv ppGlobalMemoTable }
-      | otherwise = st { ppLocalMemoTable = IntMap.insert termIdx mv ppLocalMemoTable }
-    --  local (\s -> add_to_table global_p memoVar s) (f memoVar)
-    --    where
-    --      add_to_table True v st =
-    --        st { ppMemoFresh = v + 1,
-    --             ppGlobalMemoTable = IntMap.insert termIdx memoVar (ppGlobalMemoTable st) }
-    --      add_to_table False v st =
-    --        st { ppMemoFresh = v + 1,
-    --             ppLocalMemoTable = IntMap.insert termIdx memoVar (ppLocalMemoTable st) }
-
+    refresh st@PPState{..} = st { ppMemoFresh = ppMemoFresh + 1 }
+    bind memoVar st@PPState{..}
+      | global_p = st { ppGlobalMemoTable = IntMap.insert termIdx memoVar ppGlobalMemoTable }
+      | otherwise = st { ppLocalMemoTable = IntMap.insert termIdx memoVar ppLocalMemoTable }
 
 --------------------------------------------------------------------------------
 -- * The Pretty-Printing of Specific Constructs

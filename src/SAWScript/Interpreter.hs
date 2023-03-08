@@ -107,6 +107,7 @@ import qualified Prettyprinter.Render.Text as PP (putDoc)
 import SAWScript.AutoMatch
 
 import qualified Lang.Crucible.FunctionHandle as Crucible
+import Verifier.SAW.Term.Pretty (MemoStyle(..))
 
 -- Environment -----------------------------------------------------------------
 
@@ -738,6 +739,21 @@ set_min_sharing b = do
   rw <- getTopLevelRW
   putTopLevelRW rw { rwPPOpts = (rwPPOpts rw) { ppOptsMinSharing = b } }
 
+set_memoization_hash :: Int -> TopLevel ()
+set_memoization_hash i = do
+  rw <- getTopLevelRW
+  putTopLevelRW rw { rwPPOpts = (rwPPOpts rw) {ppOptsMemoStyle = Hash i } }
+
+set_memoization_hash_incremental :: Int -> TopLevel ()
+set_memoization_hash_incremental i = do
+  rw <- getTopLevelRW
+  putTopLevelRW rw { rwPPOpts = (rwPPOpts rw) {ppOptsMemoStyle = HashIncremental i } }
+
+set_memoization_incremental :: TopLevel ()
+set_memoization_incremental = do
+  rw <- getTopLevelRW
+  putTopLevelRW rw { rwPPOpts = (rwPPOpts rw) {ppOptsMemoStyle = Incremental } }
+
 print_value :: Value -> TopLevel ()
 print_value (VString s) = printOutLnTop Info (Text.unpack s)
 print_value (VTerm t) = do
@@ -1096,6 +1112,21 @@ primitives = Map.fromList
     Current
     [ "Set the number times a subterm must be shared for it to be"
     ,  "let-bound in printer output." ]
+
+  , prim "set_memoization_hash" "Int -> TopLevel ()"
+    (pureVal set_memoization_hash)
+    Current
+    [ "hash" ]
+
+  , prim "set_memoization_hash_incremental" "Int -> TopLevel ()"
+    (pureVal set_memoization_hash_incremental)
+    Current
+    [ "hash_inc" ]
+
+  , prim "set_memoization_incremental" "TopLevel ()"
+    (pureVal set_memoization_incremental)
+    Current
+    [ "inc" ]
 
   , prim "set_timeout"         "Int -> ProofScript ()"
     (pureVal set_timeout)

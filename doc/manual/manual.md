@@ -4,18 +4,17 @@ The Software Analysis Workbench (SAW) is a tool for constructing
 mathematical models of the computational behavior of software,
 transforming these models, and proving properties about them.
 
-SAW can currently construct models of a subset of programs written in
-Cryptol, LLVM (and therefore C), and JVM (and therefore Java). The
-models take the form of typed functional programs, so in a sense SAW can
-be considered a translator from imperative programs to their functional
-equivalents. Various external proof tools, including a variety of SAT
-and SMT solvers, can be used to prove properties about the functional
-models. SAW can construct models from arbitrary Cryptol programs, and
-from C and Java programs that have fixed-size inputs and outputs and
-that terminate after a fixed number of iterations of any loop (or a
-fixed number of recursive calls). One common use case is to verify that
-an algorithm specification in Cryptol is equivalent to an algorithm
-implementation in C or Java.
+SAW can currently construct models of a subset of programs written in Cryptol,
+LLVM (and therefore C), JVM (and therefore Java), and MIR (and therefore Rust).
+The models take the form of typed functional programs, so in a sense SAW can be
+considered a translator from imperative programs to their functional
+equivalents. Various external proof tools, including a variety of SAT and SMT
+solvers, can be used to prove properties about the functional models. SAW can
+construct models from arbitrary Cryptol programs, and from C, Java, and Rust
+programs that have fixed-size inputs and outputs and that terminate after a
+fixed number of iterations of any loop (or a fixed number of recursive calls).
+One common use case is to verify that an algorithm specification in Cryptol is
+equivalent to an algorithm implementation in C, Java, or Rust.
 
 The process of extracting models from programs, manipulating them,
 forming queries about them, and sending them to external provers is
@@ -176,10 +175,9 @@ Cryptol, Haskell and ML. In particular, functions are applied by
 writing them next to their arguments rather than by using parentheses
 and commas. Rather than writing `f(x, y)`, write `f x y`.
 
-Comments are written as in C and Java (among many other languages). All
-text from `//` until the end of a line is ignored. Additionally, all
-text between `/*` and `*/` is ignored, regardless of whether the line
-ends.
+Comments are written as in C, Java, and Rust (among many other languages). All
+text from `//` until the end of a line is ignored. Additionally, all text
+between `/*` and `*/` is ignored, regardless of whether the line ends.
 
 ## Basic Types and Values
 
@@ -1039,9 +1037,9 @@ can then be used to, for example, construct a new fresh variable with
 
 ## Loading and Storing Terms
 
-Most frequently, `Term` values in SAWScript come from Cryptol, JVM, or
-LLVM programs, or some transformation thereof. However, it is also
-possible to obtain them from various other sources.
+Most frequently, `Term` values in SAWScript come from Cryptol, JVM, LLVM, or
+MIR programs, or some transformation thereof. However, it is also possible to
+obtain them from various other sources.
 
 * `parse_core : String -> Term` parses a `String` containing a term in
 SAWCore syntax, returning a `Term`.
@@ -1406,7 +1404,7 @@ in CNF format for input into a standard SAT solver.
 
 # Symbolic Execution
 
-Analysis of Java and LLVM within SAWScript relies heavily on *symbolic
+Analysis of Java, LLVM, and MIR within SAWScript relies heavily on *symbolic
 execution*, so some background on how this process works can help with
 understanding the behavior of the available built-in functions.
 
@@ -1491,11 +1489,11 @@ symbolic execution system:
 * The final state of the system, and which parts of it are relevant to
   the properties being tested.
 
-In the following sections, we describe how the Java and LLVM analysis
+In the following sections, we describe how the Java, LLVM, and MIR analysis
 primitives work in the context of these key concepts. We start with the
-simplest situation, in which the structure of the initial and final
-states can be directly inferred, and move on to more complex cases that
-require more information from the user.
+simplest situation, in which the structure of the initial and final states can
+be directly inferred, and move on to more complex cases that require more
+information from the user.
 
 # Symbolic Termination
 
@@ -1555,14 +1553,14 @@ ultimately analyze the generated models to, early in the process, prove
 that certain branch conditions can never be true (i.e., are
 *unsatisfiable*).
 
-Normally, most of the Java and LLVM analysis commands simply compare
-branch conditions to the constant `True` or `False` to determine whether
-a branch may be feasible. However, each form of analysis allows branch
-satisfiability checking to be turned on if needed, in which case
-functions like `f` above will terminate.
+Normally, most of the Java, LLVM, and MIR analysis commands simply compare
+branch conditions to the constant `True` or `False` to determine whether a
+branch may be feasible. However, each form of analysis allows branch
+satisfiability checking to be turned on if needed, in which case functions like
+`f` above will terminate.
 
 Next, we examine the details of the specific commands available to
-analyze JVM and LLVM programs.
+analyze JVM, LLVM, and MIR programs.
 
 # Loading Code
 
@@ -1623,12 +1621,14 @@ unresolved issues in verifying code involving classes such as `String`. For
 more information on these issues, refer to
 [this GitHub issue](https://github.com/GaloisInc/crucible/issues/641).
 
+TODO RGS: Describe MIR loading
+
 ## Notes on Compiling Code for SAW
 
-SAW will generally be able to load arbitrary LLVM bitcode and JVM
-bytecode files, but several guidelines can help make verification
-easier or more likely to succeed. For generating LLVM with `clang`, it
-can be helpful to:
+SAW will generally be able to load arbitrary LLVM bitcode and JVM bytecode
+files, but several guidelines can help make verification easier or more likely
+to succeed (TODO RGS: Say something about MIR in the previous sentence). For
+generating LLVM with `clang`, it can be helpful to:
 
 * Turn on debugging symbols with `-g` so that SAW can find source
   locations of functions, names of variables, etc.
@@ -1664,6 +1664,8 @@ retain information about the names of function arguments and local
 variables.
 
 [^1]: https://clang.llvm.org/docs/UsersManual.html#controlling-code-generation
+
+TODO RGS: Describe MIR compilation
 
 ## Notes on C++ Analysis
 
@@ -1724,16 +1726,18 @@ A similar function exists for Java, but is more experimental.
 
 * `jvm_extract : JavaClass -> String -> TopLevel Term`
 
+TODO RGS: Say something about MIR here?
+
 Because of its lack of maturity, it (and later Java-related commands)
 must be enabled by running the `enable_experimental` command beforehand.
 
 * `enable_experimental : TopLevel ()`
 
-The structure of these two extraction functions is essentially
-identical. The first argument describes where to look for code (in
-either a Java class or an LLVM module, loaded as described in the
-previous section). The second argument is the name of the method or
-function to extract.
+The structure of these two extraction functions is essentially identical. The
+first argument describes where to look for code (in either a Java class or an
+LLVM module, loaded as described in the previous section) (TODO RGS: Say
+something about MIR in the previous sentence?). The second argument is the name
+of the method or function to extract.
 
 When the extraction functions complete, they return a `Term`
 corresponding to the value returned by the function or method as a
@@ -1746,13 +1750,12 @@ allocated during execution is allowed).
 
 # Creating Symbolic Variables
 
-The direct extraction process just discussed automatically introduces
-symbolic variables and then abstracts over them, yielding a SAWScript
-`Term` that reflects the semantics of the original Java or LLVM code.
-For simple functions, this is often the most convenient interface. For
-more complex code, however, it can be necessary (or more natural) to
-specifically introduce fresh variables and indicate what portions of the
-program state they correspond to.
+The direct extraction process just discussed automatically introduces symbolic
+variables and then abstracts over them, yielding a SAWScript `Term` that
+reflects the semantics of the original Java, LLVM, or MIR code.  For simple
+functions, this is often the most convenient interface. For more complex code,
+however, it can be necessary (or more natural) to specifically introduce fresh
+variables and indicate what portions of the program state they correspond to.
 
 * `fresh_symbolic : String -> Type -> TopLevel Term` is responsible for
 creating new variables in this context. The first argument is a name
@@ -1875,12 +1878,12 @@ The built-in functions described so far work by extracting models of
 code that can then be used for a variety of purposes, including proofs
 about the properties of the code.
 
-When the goal is to prove equivalence between some LLVM or Java code and
-a specification, however, a more declarative approach is sometimes
-convenient. The following sections describe an approach that combines
-model extraction and verification with respect to a specification. A
-verified specification can then be used as input to future
-verifications, allowing the proof process to be decomposed.
+When the goal is to prove equivalence between some LLVM, Java, or MIR code and
+a specification, however, a more declarative approach is sometimes convenient.
+The following sections describe an approach that combines model extraction and
+verification with respect to a specification. A verified specification can then
+be used as input to future verifications, allowing the proof process to be
+decomposed.
 
 ## Running a Verification
 
@@ -1924,6 +1927,8 @@ jvm_verify :
 Now we describe how to construct a value of type `LLVMSetup ()` (or
 `JVMSetup ()`).
 
+TODO RGS: Say something about MIR here
+
 ## Structure of a Specification
 
 A specifications for Crucible consists of three logical components:
@@ -1934,14 +1939,14 @@ A specifications for Crucible consists of three logical components:
 
 * A specification of the expected final value of the program state.
 
-These three portions of the specification are written in sequence within
-a `do` block of `LLVMSetup` (or `JVMSetup`) type. The command
-`llvm_execute_func` (or `jvm_execute_func`) separates the
-specification of the initial state from the specification of the final
-state, and specifies the arguments to the function in terms of the
-initial state. Most of the commands available for state description will
-work either before or after `llvm_execute_func`, though with
-slightly different meaning, as described below.
+These three portions of the specification are written in sequence within a `do`
+block of `LLVMSetup` (or `JVMSetup`) type (TODO RGS: Say something about MIR in
+the previous sentence). The command `llvm_execute_func` (or `jvm_execute_func`)
+separates the specification of the initial state from the specification of the
+final state, and specifies the arguments to the function in terms of the
+initial state. Most of the commands available for state description will work
+either before or after `llvm_execute_func`, though with slightly different
+meaning, as described below.
 
 ## Creating Fresh Variables
 
@@ -1956,11 +1961,13 @@ contain fresh variables. These are created in a specification with the
 
 * `jvm_fresh_var : String -> JavaType -> JVMSetup Term`
 
-The first parameter to both functions is a name, used only for
-presentation. It's possible (though not recommended) to create multiple
-variables with the same name, but SAW will distinguish between them
-internally. The second parameter is the LLVM (or Java) type of the
-variable. The resulting `Term` can be used in various subsequent
+* TODO RGS: Say something about MIR here
+
+The first parameter to both functions is a name, used only for presentation.
+It's possible (though not recommended) to create multiple variables with the
+same name, but SAW will distinguish between them internally. The second
+parameter is the LLVM (or Java) type of the variable. (TODO RGS: Say something
+about MIR here) The resulting `Term` can be used in various subsequent
 commands.
 
 LLVM types are built with this set of functions:
@@ -1986,12 +1993,14 @@ Java types are built up using the following functions:
 * `java_class : String -> JavaType`
 * `java_array : Int -> JavaType -> JavaType`
 
-Most of these types are straightforward mappings to the standard LLVM
-and Java types. The one key difference is that arrays must have a fixed,
+* TODO RGS: Say something about MIR here
+
+Most of these types are straightforward mappings to the standard LLVM, Java,
+and MIR types. The one key difference is that arrays must have a fixed,
 concrete size. Therefore, all analysis results are valid only under the
-assumption that any arrays have the specific size indicated, and may not
-hold for other sizes. The `llvm_int` function also takes an `Int`
-parameter indicating the variable's bit width.
+assumption that any arrays have the specific size indicated, and may not hold
+for other sizes. The `llvm_int` function also takes an `Int` parameter
+indicating the variable's bit width.
 
 LLVM types can also be specified in LLVM syntax directly by using the
 `llvm_type` function.
@@ -2022,6 +2031,8 @@ The `llvm_term` and `jvm_term` functions create a `SetupValue` or
 * `llvm_term : Term -> SetupValue`
 * `jvm_term : Term -> JVMValue`
 
+* TODO RGS: Say something about MIR here
+
 ## Executing
 
 Once the initial state has been configured, the `llvm_execute_func`
@@ -2030,6 +2041,8 @@ of the state elements already configured.
 
 * `llvm_execute_func : [SetupValue] -> LLVMSetup ()`
 
+* TODO RGS: Say something about JVM and MIR here
+
 ## Return Values
 
 To specify the value that should be returned by the function being
@@ -2037,6 +2050,8 @@ verified use the `llvm_return` or `jvm_return` command.
 
 * `llvm_return : SetupValue -> LLVMSetup ()`
 * `jvm_return : JVMValue -> JVMSetup ()`
+
+* TODO RGS: Say something about MIR here
 
 ## A First Simple Example
 
@@ -2079,11 +2094,11 @@ of properties we have already proved about its callees rather than
 analyzing them anew. This enables us to reason about much larger
 and more complex systems than otherwise possible.
 
-The `llvm_verify` and `jvm_verify` functions return values of
-type `CrucibleMethodSpec` and `JVMMethodSpec`, respectively. These
-values are opaque objects that internally contain both the information
-provided in the associated `JVMSetup` or `LLVMSetup` blocks and
-the results of the verification process.
+The `llvm_verify` and `jvm_verify` functions return values of type
+`CrucibleMethodSpec` and `JVMMethodSpec`, respectively (TODO RGS: Say something
+about MIR in the previous sentence). These values are opaque objects that
+internally contain both the information provided in the associated `JVMSetup`
+or `LLVMSetup` blocks and the results of the verification process.
 
 Any of these `MethodSpec` objects can be passed in via the third
 argument of the `..._verify` functions. For any function or method
@@ -2153,6 +2168,8 @@ array of the given concrete size, with elements of the given type.
 * `jvm_alloc_object : String -> JVMSetup JVMValue` specifies an object
 of the given class name.
 
+* TODO RGS: Say something about MIR here
+
 In LLVM, it's also possible to construct fresh pointers that do not
 point to allocated memory (which can be useful for functions that
 manipulate pointers but not the values they point to):
@@ -2164,6 +2181,8 @@ JVM:
 
 * `llvm_null : SetupValue`
 * `jvm_null : JVMValue`
+
+* TODO RGS: Say something about MIR here
 
 One final, slightly more obscure command is the following:
 
@@ -2284,6 +2303,8 @@ the value of an array element.
 
 * `jvm_field_is : JVMValue -> String -> JVMValue -> JVMSetup ()`
 specifies the name of an object field.
+
+* TODO RGS: Say something about MIR here
 
 ### Bitfields
 
@@ -2474,6 +2495,8 @@ values in scope at the time.
 * `jvm_postcond : Term -> JVMSetup ()`
 * `jvm_assert : Term -> JVMSetup ()`
 
+* TODO RGS: Say something about MIR here
+
 These commands take `Term` arguments, and therefore cannot describe
 the values of pointers. The "assert" variants will work in either pre-
 or post-conditions, and are useful when defining helper functions
@@ -2506,6 +2529,8 @@ Or, in the experimental JVM implementation:
 jvm_unsafe_assume_spec :
   JavaClass -> String -> JVMSetup () -> TopLevel JVMMethodSpec
 ~~~
+
+* TODO RGS: Say something about MIR here
 
 ## A Heap-Based Example
 

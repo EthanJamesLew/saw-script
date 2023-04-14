@@ -95,6 +95,8 @@
   on Windows at this time due to a downstream issue with CVC5 1.0.4 and
   earlier.)
 
+* TODO RGS: Say something about MIR here
+
 # Version 0.9
 
 ## New Features

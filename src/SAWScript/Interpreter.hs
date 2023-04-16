@@ -93,6 +93,7 @@ import qualified SAWScript.Crucible.Common.MethodSpec as CMS
 import qualified SAWScript.Crucible.JVM.BuiltinsJVM as CJ
 import           SAWScript.Crucible.LLVM.Builtins
 import           SAWScript.Crucible.JVM.Builtins
+import           SAWScript.Crucible.MIR.Builtins
 import           SAWScript.Crucible.LLVM.X86
 import           SAWScript.Crucible.LLVM.Boilerplate
 import           SAWScript.Crucible.LLVM.Skeleton.Builtins
@@ -3741,6 +3742,14 @@ primitives = Map.fromList
     (pureVal (CMS.SetupTerm :: TypedTerm -> CMS.SetupValue CJ.JVM))
     Current
     [ "Construct a `JVMValue` from a `Term`." ]
+
+    ---------------------------------------------------------------------
+    -- Crucible/MIR commands
+
+  , prim "mir_load_module" "String -> TopLevel MIRModule"
+    (pureVal mir_load_module)
+    Experimental
+    [ "TODO RGS: Docs" ]
 
     ---------------------------------------------------------------------
 

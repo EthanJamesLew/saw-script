@@ -625,6 +625,8 @@ def llvm_verify(module: LLVMModule,
 
     return result
 
+# TODO RGS: MIR commands go here
+
 def prove(goal: cryptoltypes.CryptolJSON,
           proof_script: proofscript.ProofScript) -> ProofResult:
     """Atempts to prove that the expression given as the first argument, `goal`, is

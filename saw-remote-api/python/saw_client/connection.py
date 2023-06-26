@@ -229,6 +229,8 @@ class SAWConnection:
             LLVMAssume(self, module, function, contract, lemma_name, timeout)
         return self.most_recent_result
 
+    # TODO RGS: MIR commands go here
+
     def yosys_import(self, name: str, path: str, timeout : Optional[float] = None) -> Command:
         self.most_recent_result = YosysImport(self, name, path, timeout)
         return self.most_recent_result

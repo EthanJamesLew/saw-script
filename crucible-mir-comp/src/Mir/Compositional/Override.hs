@@ -53,6 +53,7 @@ import qualified Verifier.SAW.TypedTerm as SAW
 
 import qualified SAWScript.Crucible.Common.MethodSpec as MS
 import qualified SAWScript.Crucible.Common.Override as MS
+import SAWScript.Crucible.MIR.MethodSpecIR
 
 import Mir.Generator
 import Mir.Intrinsics hiding (MethodSpec)
@@ -60,7 +61,6 @@ import qualified Mir.Mir as M
 
 import Mir.Compositional.Clobber
 import Mir.Compositional.Convert
-import Mir.Compositional.MethodSpec
 
 
 type MirOverrideMatcher sym a = forall p rorw rtp args ret.

@@ -1,10 +1,29 @@
 {-# Language DataKinds #-}
-{-# Language TypeFamilies #-}
 {-# Language OverloadedStrings #-}
 {-# Language TemplateHaskell #-}
+{-# Language TypeFamilies #-}
+{-# OPTIONS_GHC -fno-warn-orphans  #-}
 
-module Mir.Compositional.MethodSpec
-where
+-- | TODO RGS: Docs
+module SAWScript.Crucible.MIR.MethodSpecIR
+  ( -- * @MirPointsTo@
+    MirPointsTo(..)
+
+    -- * @MirAllocSpec@
+  , MirAllocSpec(..)
+  , maType
+  , maMutbl
+  , maMirType
+  , maLen
+
+    -- * @MirPointer@
+  , MirPointer(..)
+  , mpType
+  , mpRef
+
+    -- * @MIRMethodSpec@
+  , MIRMethodSpec
+  ) where
 
 import Control.Lens (makeLenses)
 import Data.Parameterized.Classes
@@ -13,15 +32,13 @@ import Data.Text (Text)
 import qualified Prettyprinter as PP
 
 import Lang.Crucible.Types
-
-import qualified SAWScript.Crucible.Common.MethodSpec as MS
-import qualified SAWScript.Crucible.Common.Override as MS
-
 import Mir.DefId
 import Mir.Generator
 import Mir.Intrinsics
 import qualified Mir.Mir as M
 
+import qualified SAWScript.Crucible.Common.MethodSpec as MS
+import qualified SAWScript.Crucible.Common.Override as MS
 
 type instance MS.HasSetupNull MIR = 'False
 type instance MS.HasSetupGlobal MIR = 'False

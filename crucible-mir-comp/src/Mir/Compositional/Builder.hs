@@ -52,6 +52,7 @@ import qualified Verifier.SAW.Simulator.What4.ReturnTrip as SAW
 import qualified Verifier.SAW.TypedTerm as SAW
 
 import qualified SAWScript.Crucible.Common.MethodSpec as MS
+import SAWScript.Crucible.MIR.MethodSpecIR
 
 import Mir.DefId
 import Mir.Generator (CollectionState, collection)
@@ -61,7 +62,6 @@ import qualified Mir.Mir as M
 
 import Mir.Compositional.Clobber
 import Mir.Compositional.Convert
-import Mir.Compositional.MethodSpec
 import Mir.Compositional.Override (MethodSpec(..))
 
 

@@ -114,6 +114,8 @@ import           Lang.Crucible.Utils.StateContT
 import           Lang.Crucible.LLVM.ArraySizeProfile
 
 import           Mir.Generator
+import           Mir.Intrinsics (MIR)
+import qualified Mir.Mir as MIR
 
 import           What4.ProgramLoc (ProgramLoc(..))
 
@@ -150,6 +152,10 @@ data Value
   | VJVMMethodSpec !(CMS.ProvedSpec CJ.JVM)
   | VJVMSetupValue !(CMS.SetupValue CJ.JVM)
   -----
+  | VMIRSetup -- TODO RGS: What should this be?
+  | VMIRMethodSpec -- TODO RGS: What should this be?
+  | VMIRSetupValue -- TODO RGS: What should this be?
+  -----
   | VLLVMModuleSkeleton ModuleSkeleton
   | VLLVMFunctionSkeleton FunctionSkeleton
   | VLLVMSkeletonState SkeletonState
@@ -157,6 +163,7 @@ data Value
   -----
   | VJavaType JavaType
   | VLLVMType LLVM.Type
+  | VMIRType MIR.Ty
   | VCryptolModule CryptolModule
   | VJavaClass JSS.Class
   | VLLVMModule (Some CMSLLVM.LLVMModule)
@@ -339,6 +346,7 @@ showsPrecValue opts nenv p v =
     VLLVMFunctionProfile _ -> showString "<<Array sizes for function>>"
     VJavaType {} -> showString "<<Java type>>"
     VLLVMType t -> showString (show (LLVM.ppType t))
+    VMIRType t -> showString (show (PP.pretty t))
     VCryptolModule m -> showString (showCryptolModule m)
     VLLVMModule (Some m) -> showString (CMSLLVM.showLLVMModule m)
     VMIRModule m -> shows (PP.pretty (m^.rmCS^.collection))
@@ -359,6 +367,9 @@ showsPrecValue opts nenv p v =
     VJVMSetup _      -> showString "<<JVM Setup>>"
     VJVMMethodSpec _ -> showString "<<JVM MethodSpec>>"
     VJVMSetupValue x -> shows x
+    VMIRSetup -> showString "<<MIR Setup>>"
+    VMIRMethodSpec -> showString "<<MIR MethodSpec>>"
+    VMIRSetupValue -> showString "" -- TODO RGS: Do this right
   where
     opts' = sawPPOpts opts
 
@@ -860,6 +871,13 @@ newtype JVMSetupM a = JVMSetupM { runJVMSetupM :: JVMSetup a }
   deriving (Applicative, Functor, Monad)
 
 --
+
+type MIRSetup = CrucibleSetup MIR
+
+newtype MIRSetupM a = MIRSetupM { runMIRSetupM :: MIRSetup a }
+  deriving (Applicative, Functor, Monad)
+
+--
 newtype ProofScript a = ProofScript { unProofScript :: ExceptT (SolverStats, CEX) (StateT ProofState TopLevel) a }
  deriving (Functor, Applicative, Monad)
 
@@ -1178,6 +1196,13 @@ instance IsValue LLVM.Type where
 instance FromValue LLVM.Type where
     fromValue (VLLVMType t) = t
     fromValue _ = error "fromValue LLVMType"
+
+instance IsValue MIR.Ty where
+    toValue t = VMIRType t
+
+instance FromValue MIR.Ty where
+    fromValue (VMIRType t) = t
+    fromValue _ = error "fromValue MIRType"
 
 instance IsValue Uninterp where
     toValue me = VUninterp me

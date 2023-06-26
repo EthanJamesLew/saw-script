@@ -3766,6 +3766,122 @@ primitives = Map.fromList
     Experimental
     [ "Load a MIR JSON file and return a handle to it." ]
 
+  -- TODO RGS: Other types go here
+
+  , prim "mir_array" "Int -> MIRType -> MIRType"
+    (pureVal mir_array)
+    Experimental
+    [ "The type of MIR arrays with the given number of elements of the"
+    , "given type." ]
+
+  , prim "mir_bool" "MIRType"
+    (pureVal mir_bool)
+    Experimental
+    [ "The type of MIR booleans." ]
+
+  , prim "mir_char" "MIRType"
+    (pureVal mir_char)
+    Experimental
+    [ "The type of MIR characters." ]
+
+  , prim "mir_i8" "MIRType"
+    (pureVal mir_i8)
+    Experimental
+    [ "The type of MIR 8-bit signed integers." ]
+
+  , prim "mir_i16" "MIRType"
+    (pureVal mir_i16)
+    Experimental
+    [ "The type of MIR 16-bit signed integers." ]
+
+  , prim "mir_i32" "MIRType"
+    (pureVal mir_i32)
+    Experimental
+    [ "The type of MIR 32-bit signed integers." ]
+
+  , prim "mir_i64" "MIRType"
+    (pureVal mir_i64)
+    Experimental
+    [ "The type of MIR 64-bit signed integers." ]
+
+  , prim "mir_i128" "MIRType"
+    (pureVal mir_i128)
+    Experimental
+    [ "The type of MIR 128-bit signed integers." ]
+
+  , prim "mir_isize" "MIRType"
+    (pureVal mir_isize)
+    Experimental
+    [ "The type of MIR pointer-sized signed integers." ]
+
+  , prim "mir_f32" "MIRType"
+    (pureVal mir_f32)
+    Experimental
+    [ "The type of MIR single-precision floating-point values." ]
+
+  , prim "mir_f64" "MIRType"
+    (pureVal mir_f64)
+    Experimental
+    [ "The type of MIR double-precision floating-point values." ]
+
+  , prim "mir_ref" "MIRType -> MIRType"
+    (pureVal mir_ref)
+    Experimental
+    [ "The type of MIR immutable references." ]
+
+  , prim "mir_ref_mut" "MIRType -> MIRType"
+    (pureVal mir_ref_mut)
+    Experimental
+    [ "The type of MIR mutable references." ]
+
+  , prim "mir_slice" "MIRType -> MIRType"
+    (pureVal mir_slice)
+    Experimental
+    [ "The type of MIR slices, i.e., dynamically sized views into a"
+    , "contiguous sequence of the given type. Currently, SAW can only"
+    , "handle references to slices (&[T])." ]
+
+  , prim "mir_str" "MIRType"
+    (pureVal mir_str)
+    Experimental
+    [ "The type of MIR strings, which are a particular kind of slice."
+    , "Currently, SAW can only handle references to strings (&str)." ]
+
+  , prim "mir_tuple" "[MIRType] -> MIRType"
+    (pureVal mir_tuple)
+    Experimental
+    [ "The type of MIR tuples of the given types." ]
+
+  , prim "mir_u8" "MIRType"
+    (pureVal mir_u8)
+    Experimental
+    [ "The type of MIR 8-bit unsigned integers." ]
+
+  , prim "mir_u16" "MIRType"
+    (pureVal mir_u16)
+    Experimental
+    [ "The type of MIR 16-bit unsigned integers." ]
+
+  , prim "mir_u32" "MIRType"
+    (pureVal mir_u32)
+    Experimental
+    [ "The type of MIR 32-bit unsigned integers." ]
+
+  , prim "mir_u64" "MIRType"
+    (pureVal mir_u64)
+    Experimental
+    [ "The type of MIR 64-bit unsigned integers." ]
+
+  , prim "mir_u128" "MIRType"
+    (pureVal mir_u128)
+    Experimental
+    [ "The type of MIR 128-bit unsigned integers." ]
+
+  , prim "mir_usize" "MIRType"
+    (pureVal mir_usize)
+    Experimental
+    [ "The type of MIR pointer-sized unsigned integers." ]
+
     ---------------------------------------------------------------------
 
   , prim "yosys_import"  "String -> TopLevel Term"

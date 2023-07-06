@@ -158,7 +158,7 @@ library
 
     SAWScript.Crucible.MIR.Builtins
     SAWScript.Crucible.MIR.MethodSpecIR
-    -- SAWScript.Crucible.MIR.ResolveSetupValue
+    SAWScript.Crucible.MIR.ResolveSetupValue
 
     SAWScript.Prover.Mode
     SAWScript.Prover.Rewrite

@@ -1,13 +1,19 @@
 {-# Language DataKinds #-}
 {-# Language OverloadedStrings #-}
+{-# Language RankNTypes #-}
 {-# Language TemplateHaskell #-}
 {-# Language TypeFamilies #-}
 {-# OPTIONS_GHC -fno-warn-orphans  #-}
 
 -- | TODO RGS: Docs
 module SAWScript.Crucible.MIR.MethodSpecIR
-  ( -- * @MirPointsTo@
-    MirPointsTo(..)
+  ( -- * @MIRCrucibleContext@
+    MIRCrucibleContext(..)
+  , mccBackend
+  , mccSym
+
+    -- * @MirPointsTo@
+  , MirPointsTo(..)
 
     -- * @MirAllocSpec@
   , MirAllocSpec(..)
@@ -25,7 +31,7 @@ module SAWScript.Crucible.MIR.MethodSpecIR
   , MIRMethodSpec
   ) where
 
-import Control.Lens (makeLenses)
+import Control.Lens (Getter, makeLenses, to)
 import Data.Parameterized.Classes
 import Data.Parameterized.Some
 import Data.Text (Text)
@@ -37,6 +43,7 @@ import Mir.Generator
 import Mir.Intrinsics
 import qualified Mir.Mir as M
 
+import           SAWScript.Crucible.Common
 import qualified SAWScript.Crucible.Common.MethodSpec as MS
 import qualified SAWScript.Crucible.Common.Override as MS
 
@@ -63,7 +70,22 @@ type instance MS.CastType MIR = ()
 
 type instance MS.Codebase MIR = CollectionState
 
-type instance MS.CrucibleContext MIR = ()
+newtype MIRCrucibleContext =
+  MIRCrucibleContext
+  { _mccBackend :: SomeOnlineBackend
+  }
+
+type instance MS.CrucibleContext MIR = MIRCrucibleContext
+
+mccWithBackend ::
+  MIRCrucibleContext ->
+  (forall solver. OnlineSolver solver => Backend solver -> a) ->
+  a
+mccWithBackend cc k =
+  case _mccBackend cc of SomeOnlineBackend bak -> k bak
+
+mccSym :: Getter MIRCrucibleContext Sym
+mccSym = to (\mcc -> mccWithBackend mcc backendGetSym)
 
 type instance MS.Pointer' MIR sym = Some (MirPointer sym)
 
@@ -92,5 +114,6 @@ data MirPointer sym tp = MirPointer
 
 type MIRMethodSpec = MS.CrucibleMethodSpecIR MIR
 
+makeLenses ''MIRCrucibleContext
 makeLenses ''MirAllocSpec
 makeLenses ''MirPointer

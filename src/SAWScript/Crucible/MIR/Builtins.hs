@@ -43,6 +43,7 @@ import Mir.ParseTranslate
 import qualified SAWScript.Crucible.Common.MethodSpec as MS
 import qualified SAWScript.Crucible.Common.Setup.Builtins as Setup
 import qualified SAWScript.Crucible.Common.Setup.Type as Setup
+import SAWScript.Crucible.MIR.ResolveSetupValue
 import SAWScript.Options
 import SAWScript.Value
 

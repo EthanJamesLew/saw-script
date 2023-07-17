@@ -53,6 +53,7 @@ import Mir.TransTy ( tyListToCtx, tyToRepr, tyToReprCont, canInitialize
                    , isUnsized, reprTransparentFieldTy )
 
 
+-- TODO RGS: Consolidate with SAWScript.Crucible.MIR.TypeShape
 -- | TypeShape is used to classify MIR `Ty`s and their corresponding
 -- CrucibleTypes into a few common cases.  We don't use `Ty` directly because
 -- there are some `Ty`s that have identical structure (such as TyRef vs.

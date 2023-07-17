@@ -9,6 +9,7 @@
 module SAWScript.Crucible.MIR.MethodSpecIR
   ( -- * @MIRCrucibleContext@
     MIRCrucibleContext(..)
+  , mccCollectionState
   , mccBackend
   , mccSym
 
@@ -25,6 +26,8 @@ module SAWScript.Crucible.MIR.MethodSpecIR
     -- * @MirPointer@
   , MirPointer(..)
   , mpType
+  , mpMutbl
+  , mpMirType
   , mpRef
 
     -- * @MIRMethodSpec@
@@ -70,9 +73,10 @@ type instance MS.CastType MIR = ()
 
 type instance MS.Codebase MIR = CollectionState
 
-newtype MIRCrucibleContext =
+data MIRCrucibleContext =
   MIRCrucibleContext
-  { _mccBackend :: SomeOnlineBackend
+  { _mccCollectionState :: CollectionState
+  , _mccBackend         :: SomeOnlineBackend
   }
 
 type instance MS.CrucibleContext MIR = MIRCrucibleContext
@@ -109,6 +113,8 @@ instance ShowF MirAllocSpec where
 
 data MirPointer sym tp = MirPointer
     { _mpType :: TypeRepr tp
+    , _mpMutbl :: M.Mutability
+    , _mpMirType :: M.Ty
     , _mpRef :: MirReferenceMux sym tp
     }
 

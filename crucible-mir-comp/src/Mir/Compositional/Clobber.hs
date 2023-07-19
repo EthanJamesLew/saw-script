@@ -106,7 +106,7 @@ clobberImmutSymbolic sym loc nameStr shp rv = go shp rv
     go (TransparentShape _ shp) rv = go shp rv
     -- Since this ref is in immutable memory, whatever behavior we're
     -- approximating with this clobber can't possibly modify it.
-    go (RefShape _ _ _tpr) rv = return rv
+    go (RefShape _ _ _ _tpr) rv = return rv
     go (FnPtrShape _ _ _) _rv =
         error "Function pointers not currently supported in overrides"
 

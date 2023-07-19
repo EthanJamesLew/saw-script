@@ -76,7 +76,15 @@ data TypeShape (tp :: CrucibleType) where
     -- | Note that RefShape contains only a TypeRepr for the pointee type, not
     -- a TypeShape.  None of our operations need to recurse inside pointers,
     -- and also this saves us from some infinite recursion.
-    RefShape :: M.Ty -> M.Ty -> TypeRepr tp -> TypeShape (MirReferenceType tp)
+    RefShape :: M.Ty
+             -- ^ The reference type
+             -> M.Ty
+             -- ^ The pointee type
+             -> M.Mutability
+             -- ^ Is the reference mutable or immutable?
+             -> TypeRepr tp
+             -- ^ The Crucible representation of the pointee type
+             -> TypeShape (MirReferenceType tp)
     -- | Note that 'FnPtrShape' contains only 'TypeRepr's for the argument and
     -- result types, not 'TypeShape's, as none of our operations need to recurse
     -- inside them.
@@ -153,13 +161,13 @@ tyToShape col ty = go ty
       = Some $
          TupleShape ty [refTy, usizeTy]
              (Empty
-                :> ReqField (RefShape refTy slicedTy tpr)
+                :> ReqField (RefShape refTy slicedTy mutbl tpr)
                 :> ReqField (PrimShape usizeTy BaseUsizeRepr))
       | M.TyStr <- ty'
       = Some $
         TupleShape ty [refTy, usizeTy]
             (Empty
-                :> ReqField (RefShape refTy (M.TyUint M.B8) (BVRepr (knownNat @8)))
+                :> ReqField (RefShape refTy (M.TyUint M.B8) mutbl (BVRepr (knownNat @8)))
                 :> ReqField (PrimShape usizeTy BaseUsizeRepr))
       where
         -- We use a ref (of the same mutability as `ty`) when possible, to
@@ -170,7 +178,7 @@ tyToShape col ty = go ty
         usizeTy = M.TyUint M.USize
     goRef ty ty' _ | isUnsized ty' = error $
         "tyToShape: fat pointer " ++ show ty ++ " NYI"
-    goRef ty ty' _ | Some tpr <- tyToRepr col ty' = Some $ RefShape ty ty' tpr
+    goRef ty ty' mutbl | Some tpr <- tyToRepr col ty' = Some $ RefShape ty ty' mutbl tpr
 
     goFnPtr :: M.Ty -> M.FnSig -> Some TypeShape
     goFnPtr ty (M.FnSig args ret _abi _spread) =
@@ -199,7 +207,7 @@ shapeType shp = go shp
     go (ArrayShape _ _ shp) = MirVectorRepr $ shapeType shp
     go (StructShape _ _ _flds) = AnyRepr
     go (TransparentShape _ shp) = go shp
-    go (RefShape _ _ tpr) = MirReferenceRepr tpr
+    go (RefShape _ _ _ tpr) = MirReferenceRepr tpr
     go (FnPtrShape _ args ret) = FunctionHandleRepr args ret
 
 fieldShapeType :: FieldShape tp -> TypeRepr tp
@@ -213,7 +221,7 @@ shapeMirTy (TupleShape ty _ _) = ty
 shapeMirTy (ArrayShape ty _ _) = ty
 shapeMirTy (StructShape ty _ _) = ty
 shapeMirTy (TransparentShape ty _) = ty
-shapeMirTy (RefShape ty _ _) = ty
+shapeMirTy (RefShape ty _ _ _) = ty
 shapeMirTy (FnPtrShape ty _ _) = ty
 
 fieldShapeMirTy :: FieldShape tp -> M.Ty

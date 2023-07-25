@@ -9,8 +9,10 @@
 module SAWScript.Crucible.MIR.MethodSpecIR
   ( -- * @MIRCrucibleContext@
     MIRCrucibleContext(..)
-  , mccCollectionState
+  , mccRustModule
   , mccBackend
+  , mccHandleAllocator
+  , mccWithBackend
   , mccSym
 
     -- * @MirPointsTo@
@@ -40,6 +42,7 @@ import Data.Parameterized.Some
 import Data.Text (Text)
 import qualified Prettyprinter as PP
 
+import Lang.Crucible.FunctionHandle (HandleAllocator)
 import Lang.Crucible.Types
 import Mir.DefId
 import Mir.Generator
@@ -75,8 +78,9 @@ type instance MS.Codebase MIR = CollectionState
 
 data MIRCrucibleContext =
   MIRCrucibleContext
-  { _mccCollectionState :: CollectionState
+  { _mccRustModule      :: RustModule
   , _mccBackend         :: SomeOnlineBackend
+  , _mccHandleAllocator :: HandleAllocator
   }
 
 type instance MS.CrucibleContext MIR = MIRCrucibleContext

@@ -88,6 +88,7 @@ import qualified Verifier.SAW.Cryptol.Prelude as CryptolSAW
 
 -- Crucible
 import qualified Lang.Crucible.JVM as CJ
+import           Mir.Intrinsics (MIR)
 import qualified SAWScript.Crucible.Common as CC
 import qualified SAWScript.Crucible.Common.MethodSpec as CMS
 import qualified SAWScript.Crucible.JVM.BuiltinsJVM as CJ
@@ -3761,10 +3762,97 @@ primitives = Map.fromList
     ---------------------------------------------------------------------
     -- Crucible/MIR commands
 
+  , prim "mir_alloc" "MIRType -> MIRSetup SetupValue"
+    (pureVal mir_alloc)
+    Current
+    [ "Declare that an immutable reference to the given type should be allocated"
+    , "in a MIR specification. Before `mir_execute_func`, this states that"
+    , "the function expects the object to be allocated before it runs."
+    , "After `mir_execute_func`, it states that the function being"
+    , "verified is expected to perform the allocation."
+    ]
+
+  , prim "mir_alloc_mut" "MIRType -> MIRSetup SetupValue"
+    (pureVal mir_alloc_mut)
+    Current
+    [ "Declare that a mutable reference to the given type should be allocated"
+    , "in a MIR specification. Before `mir_execute_func`, this states that"
+    , "the function expects the object to be allocated before it runs."
+    , "After `mir_execute_func`, it states that the function being"
+    , "verified is expected to perform the allocation."
+    ]
+
+  , prim "mir_assert" "Term -> MIRSetup ()"
+    (pureVal mir_assert)
+    Current
+    [ "State that the given predicate must hold.  Acts as `mir_precond`"
+    , "or `mir_postcond` depending on the phase of specification in which"
+    , "it appears (i.e., before or after `mir_execute_func`."
+    ]
+
+  , prim "mir_execute_func" "[MIRValue] -> MIRSetup ()"
+    (pureVal mir_execute_func)
+    Current
+    [ "Specify the given list of values as the arguments of the method."
+    ,  ""
+    , "The mir_execute_func statement also serves to separate the pre-state"
+    , "section of the spec (before mir_execute_func) from the post-state"
+    , "section (after mir_execute_func). The effects of some MIRSetup"
+    , "statements depend on whether they occur in the pre-state or post-state"
+    , "section."
+    ]
+
+  , prim "mir_fresh_var" "String -> MIRType -> MIRSetup Term"
+    (pureVal mir_fresh_var)
+    Current
+    [ "Create a fresh symbolic variable for use within a MIR"
+    , "specification. The name is used only for pretty-printing."
+    ]
+
   , prim "mir_load_module" "String -> TopLevel MIRModule"
     (pureVal mir_load_module)
     Experimental
     [ "Load a MIR JSON file and return a handle to it." ]
+
+  , prim "mir_postcond" "Term -> MIRSetup ()"
+    (pureVal mir_postcond)
+    Current
+    [ "State that the given predicate is a post-condition of execution of the"
+    , "method being verified."
+    ]
+
+  , prim "mir_precond" "Term -> MIRSetup ()"
+    (pureVal mir_precond)
+    Current
+    [ "State that the given predicate is a pre-condition on execution of the"
+    , "method being verified."
+    ]
+
+  , prim "mir_return" "MIRValue -> MIRSetup ()"
+    (pureVal mir_return)
+    Current
+    [ "Specify the given value as the return value of the method. A"
+    , "mir_return statement is required if and only if the method"
+    , "has a non-() return type." ]
+
+  , prim "mir_term"
+    "Term -> MIRValue"
+    (pureVal (CMS.SetupTerm :: TypedTerm -> CMS.SetupValue MIR))
+    Current
+    [ "Construct a `MIRValue` from a `Term`." ]
+
+  , prim "mir_verify"
+    "MIRModule -> String -> [MIRSpec] -> Bool -> MIRSetup () -> ProofScript () -> TopLevel MIRSpec"
+    (pureVal mir_verify)
+    Current
+    [ "Verify the MIR function named by the second parameter in the module"
+    , "specified by the first. The third parameter lists the MIRSpec"
+    , "values returned by previous calls to use as overrides. The fourth (Bool)"
+    , "parameter enables or disables path satisfiability checking. The fifth"
+    , "describes how to set up the symbolic execution engine before verification."
+    , "And the last gives the script to use to prove the validity of the resulting"
+    , "verification conditions."
+    ]
 
   -- TODO RGS: Other types go here
 

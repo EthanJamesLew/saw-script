@@ -159,6 +159,7 @@ library
 
     SAWScript.Crucible.MIR.Builtins
     SAWScript.Crucible.MIR.MethodSpecIR
+    SAWScript.Crucible.MIR.Override
     SAWScript.Crucible.MIR.ResolveSetupValue
     SAWScript.Crucible.MIR.TypeShape
 

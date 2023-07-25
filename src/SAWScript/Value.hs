@@ -69,6 +69,7 @@ import qualified SAWScript.Crucible.Common.MethodSpec as CMS
 import qualified SAWScript.Crucible.LLVM.MethodSpecIR as CMSLLVM
 import qualified SAWScript.Crucible.LLVM.CrucibleLLVM as Crucible
 import qualified SAWScript.Crucible.JVM.MethodSpecIR ()
+import qualified SAWScript.Crucible.MIR.MethodSpecIR ()
 import qualified Lang.JVM.Codebase as JSS
 import qualified Text.LLVM.AST as LLVM (Type)
 import qualified Text.LLVM.PP as LLVM (ppType)
@@ -152,9 +153,9 @@ data Value
   | VJVMMethodSpec !(CMS.ProvedSpec CJ.JVM)
   | VJVMSetupValue !(CMS.SetupValue CJ.JVM)
   -----
-  | VMIRSetup -- TODO RGS: What should this be?
-  | VMIRMethodSpec -- TODO RGS: What should this be?
-  | VMIRSetupValue -- TODO RGS: What should this be?
+  | VMIRSetup !(MIRSetupM Value)
+  | VMIRMethodSpec !(CMS.ProvedSpec MIR)
+  | VMIRSetupValue !(CMS.SetupValue MIR)
   -----
   | VLLVMModuleSkeleton ModuleSkeleton
   | VLLVMFunctionSkeleton FunctionSkeleton
@@ -367,9 +368,9 @@ showsPrecValue opts nenv p v =
     VJVMSetup _      -> showString "<<JVM Setup>>"
     VJVMMethodSpec _ -> showString "<<JVM MethodSpec>>"
     VJVMSetupValue x -> shows x
-    VMIRSetup -> showString "<<MIR Setup>>"
-    VMIRMethodSpec -> showString "<<MIR MethodSpec>>"
-    VMIRSetupValue -> showString "" -- TODO RGS: Do this right
+    VMIRSetup{} -> showString "<<MIR Setup>>"
+    VMIRMethodSpec{} -> showString "<<MIR MethodSpec>>"
+    VMIRSetupValue x -> shows x
   where
     opts' = sawPPOpts opts
 
@@ -1041,6 +1042,19 @@ instance FromValue a => FromValue (JVMSetupM a) where
       runJVMSetupM (fromValue m2)
     fromValue _ = error "fromValue JVMSetup"
 
+instance IsValue a => IsValue (MIRSetupM a) where
+    toValue m = VMIRSetup (fmap toValue m)
+
+instance FromValue a => FromValue (MIRSetupM a) where
+    fromValue (VMIRSetup m) = fmap fromValue m
+    fromValue (VReturn v) = return (fromValue v)
+    fromValue (VBind pos m1 v2) = MIRSetupM $ do
+      v1 <- underReaderT (underStateT (withPosition pos))
+              (runMIRSetupM (fromValue m1))
+      m2 <- lift $ lift $ applyValue v2 v1
+      runMIRSetupM (fromValue m2)
+    fromValue _ = error "fromValue MIRSetup"
+
 instance IsValue (CMSLLVM.AllLLVM CMS.SetupValue) where
   toValue = VLLVMCrucibleSetupValue
 
@@ -1053,6 +1067,13 @@ instance IsValue (CMS.SetupValue CJ.JVM) where
 
 instance FromValue (CMS.SetupValue CJ.JVM) where
   fromValue (VJVMSetupValue v) = v
+  fromValue _ = error "fromValue Crucible.SetupValue"
+
+instance IsValue (CMS.SetupValue MIR) where
+  toValue v = VMIRSetupValue v
+
+instance FromValue (CMS.SetupValue MIR) where
+  fromValue (VMIRSetupValue v) = v
   fromValue _ = error "fromValue Crucible.SetupValue"
 
 instance IsValue SAW_CFG where
@@ -1075,6 +1096,13 @@ instance IsValue (CMS.ProvedSpec CJ.JVM) where
 instance FromValue (CMS.ProvedSpec CJ.JVM) where
     fromValue (VJVMMethodSpec t) = t
     fromValue _ = error "fromValue ProvedSpec JVM"
+
+instance IsValue (CMS.ProvedSpec MIR) where
+    toValue t = VMIRMethodSpec t
+
+instance FromValue (CMS.ProvedSpec MIR) where
+    fromValue (VMIRMethodSpec t) = t
+    fromValue _ = error "fromValue ProvedSpec MIR"
 
 instance IsValue ModuleSkeleton where
     toValue s = VLLVMModuleSkeleton s

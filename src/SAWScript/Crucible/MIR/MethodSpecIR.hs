@@ -34,9 +34,13 @@ module SAWScript.Crucible.MIR.MethodSpecIR
 
     -- * @MIRMethodSpec@
   , MIRMethodSpec
+
+    -- * Initial CrucibleSetupMethodSpec
+  , initialDefCrucibleMethodSpecIR
+  , initialCrucibleSetupState
   ) where
 
-import Control.Lens (Getter, makeLenses, to)
+import Control.Lens (Getter, (^.), makeLenses, to)
 import Data.Parameterized.Classes
 import Data.Parameterized.Some
 import Data.Text (Text)
@@ -48,10 +52,12 @@ import Mir.DefId
 import Mir.Generator
 import Mir.Intrinsics
 import qualified Mir.Mir as M
+import What4.ProgramLoc (ProgramLoc)
 
 import           SAWScript.Crucible.Common
 import qualified SAWScript.Crucible.Common.MethodSpec as MS
 import qualified SAWScript.Crucible.Common.Override as MS
+import qualified SAWScript.Crucible.Common.Setup.Type as Setup
 
 type instance MS.HasSetupNull MIR = 'False
 type instance MS.HasSetupGlobal MIR = 'False
@@ -127,3 +133,29 @@ type MIRMethodSpec = MS.CrucibleMethodSpecIR MIR
 makeLenses ''MIRCrucibleContext
 makeLenses ''MirAllocSpec
 makeLenses ''MirPointer
+
+initialDefCrucibleMethodSpecIR ::
+  CollectionState ->
+  M.Fn ->
+  ProgramLoc ->
+  MS.CrucibleMethodSpecIR MIR
+initialDefCrucibleMethodSpecIR rm fn loc =
+  let fname = fn ^. M.fname
+      fsig = fn ^. M.fsig
+      argTys = fsig ^. M.fsarg_tys
+      retTy = case fsig ^. M.fsreturn_ty of
+                M.TyTuple [] -> Nothing
+                ty -> Just ty in
+  MS.makeCrucibleMethodSpecIR fname argTys retTy loc rm
+
+initialCrucibleSetupState ::
+  MIRCrucibleContext ->
+  M.Fn ->
+  ProgramLoc ->
+  Setup.CrucibleSetupState MIR
+initialCrucibleSetupState cc fn loc =
+  Setup.makeCrucibleSetupState () cc $
+    initialDefCrucibleMethodSpecIR
+      (cc ^. mccRustModule ^. rmCS)
+      fn
+      loc

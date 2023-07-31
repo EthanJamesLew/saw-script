@@ -17,6 +17,7 @@ module SAWScript.Crucible.MIR.ResolveSetupValue
   , resolveTypedTerm
   , resolveBoolTerm
   , resolveSAWPred
+  , equalValsPred
   , MIRTypeOfError(..)
   ) where
 
@@ -346,3 +347,40 @@ toMIRType tp =
     Cryptol.TVFun _ _ -> Left (Impossible "function")
     Cryptol.TVAbstract _ _ -> Left (Impossible "abstract")
     Cryptol.TVNewtype{} -> Left (Impossible "newtype")
+
+equalValsPred ::
+  MIRCrucibleContext ->
+  MIRVal ->
+  MIRVal ->
+  IO (W4.Pred Sym)
+equalValsPred = error "TODO RGS: equalValsPred"
+{-
+equalValsPred cc (MIRVal shp1' v1') (MIRVal shp2' v2') =
+  go shp1' shp2' v1' v2'
+  where
+    sym = cc^.mccSym
+
+    go :: TypeShape tp1 -> TypeShape tp2
+       -> Crucible.RegValue Sym tp1 -> Crucible.RegValue Sym tp2
+       -> IO (W4.Pred Sym)
+    go shp1 shp2 v1 v2 =
+      case testEquality shp1 shp2 of
+        Just Refl ->
+          case shp1 of
+            UnitShape{} ->
+              pure (W4.truePred sym)
+            PrimShape{} ->
+              W4.isEq sym v1 v2
+            -- TupleShape{}
+            -- ArrayShape{}
+            -- FnPtrShape{}
+        Nothing ->
+          pure (W4.falsePred sym)
+
+    andAlso :: Bool -> IO (W4.Pred Sym) -> IO (W4.Pred Sym)
+    andAlso b x = if b then x else pure (W4.falsePred sym)
+
+    -- allEqual shp1 shp2 vs1 vs2 =
+    --   foldM (\x y -> andPred sym <$> x <*> y) (truePred sym) =<<
+    --     V.zipWithM (go shp1 shp2) vs1 vs2
+-}

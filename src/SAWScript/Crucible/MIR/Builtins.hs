@@ -44,18 +44,21 @@ module SAWScript.Crucible.MIR.Builtins
   ) where
 
 import Control.Lens
-import Control.Monad (forM, unless, when)
+import Control.Monad (foldM, forM, forM_, unless, when)
 import qualified Control.Monad.Catch as X
 import Control.Monad.IO.Class (MonadIO(..))
 import Control.Monad.Reader (runReaderT)
-import Control.Monad.State (MonadState(..), execStateT, gets)
+import Control.Monad.State (MonadState(..), StateT(..), execStateT, gets)
 import Control.Monad.Trans.Class (MonadTrans(..))
 import qualified Data.ByteString.Lazy as BSL
+import qualified Data.Foldable as F
 import Data.Foldable (for_)
 import Data.IORef
 import qualified Data.List.Extra as List (groupOn)
+import Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.Map as Map
 import Data.Map (Map)
+import Data.Maybe (fromMaybe)
 import qualified Data.Parameterized.Context as Ctx
 import Data.Parameterized.NatRepr (knownNat, natValue)
 import Data.Parameterized.Some (Some(..))
@@ -71,6 +74,7 @@ import System.IO (stdout)
 
 import qualified Cryptol.TypeCheck.Type as Cryptol
 
+import qualified Lang.Crucible.Analysis.Postdom as Crucible
 import qualified Lang.Crucible.Backend as Crucible
 import qualified Lang.Crucible.CFG.Core as Crucible
 import qualified Lang.Crucible.FunctionHandle as Crucible
@@ -80,10 +84,12 @@ import qualified Lang.Crucible.Simulator.SimError as Crucible
 
 import qualified Mir.DefId as Mir
 import qualified Mir.Mir as Mir
-import Mir.Generator
+import qualified Mir.Generator as Mir
 import Mir.Intrinsics (MIR)
 import qualified Mir.Intrinsics as Mir
-import Mir.ParseTranslate
+import qualified Mir.ParseTranslate as Mir
+import qualified Mir.Trans as Mir
+import Mir.TransCustom (customOps)
 import qualified Mir.TransTy as Mir
 
 import qualified What4.Concrete as W4
@@ -148,7 +154,7 @@ mir_alloc_internal mut mty =
   MIRSetupM $
   do st <- get
      let mcc = st ^. Setup.csCrucibleContext
-     let col = mcc^.mccRustModule^.rmCS^.collection
+     let col = mcc ^. mccRustModule ^. Mir.rmCS ^. Mir.collection
      {-
      loc <- SS.toW4Loc "mir_alloc" <$> lift (lift getPosition)
      tags <- view Setup.croTags
@@ -212,20 +218,20 @@ mir_fresh_var name mty =
        Just cty -> Setup.freshVariable sc name cty
 
 -- | Load a MIR JSON file and return a handle to it.
-mir_load_module :: String -> TopLevel RustModule
+mir_load_module :: String -> TopLevel Mir.RustModule
 mir_load_module inputFile = do
    b <- io $ BSL.readFile inputFile
 
    opts <- getOptions
    let ?debug = simVerbose opts
-   -- For now, we use the same default settings for implicit parameters as in
+   -- TODO RGS: For now, we use the same default settings for implicit parameters as in
    -- crux-mir. We may want to add options later that allow configuring these.
    let ?assertFalseOnError = True
    let ?printCrucible = False
 
    halloc <- getHandleAlloc
-   col <- io $ parseMIR inputFile b
-   io $ translateMIR mempty col halloc
+   col <- io $ Mir.parseMIR inputFile b
+   io $ Mir.translateMIR mempty col halloc
 
 -- | TODO RGS: Docs
 mir_return :: SetupValue -> MIRSetupM ()
@@ -270,7 +276,7 @@ mir_postcond term = MIRSetupM $ do
   Setup.crucible_postcond loc term
 
 mir_verify ::
-  RustModule ->
+  Mir.RustModule ->
   String {- ^ method name -} ->
   [Lemma] {- ^ overrides -} ->
   Bool {- ^ path sat checking -} ->
@@ -283,7 +289,7 @@ mir_verify rm nm lemmas checkSat setup tactic =
      opts <- getOptions
 
      -- set up the metadata map for tracking proof obligation metadata
-     -- mdMap <- io $ newIORef mempty
+     mdMap <- io $ newIORef mempty
 
      {-
      -- allocate all of the handles/static vars that are referenced
@@ -304,34 +310,38 @@ mir_verify rm nm lemmas checkSat setup tactic =
      profFile <- rwProfilingFile <$> getTopLevelRW
      (writeFinalProfile, pfs) <- io $ setupProfiling sym "mir_verify" profFile
 
-     {-
-     (cls', method) <- io $ findMethod cb pos nm cls -- TODO: switch to crucible-jvm version
-     let st0 = initialCrucibleSetupState cc (cls', method) loc
+     let cs = rm ^. Mir.rmCS
+         col = cs ^. Mir.collection
+         crateDisambigs = cs ^. Mir.crateHashesMap
+         explodedNm = Text.splitOn "::" (Text.pack nm)
+     did <- findDefId crateDisambigs explodedNm
+     -- TODO RGS: Factor out CFG lookup logic into its own function
+     fn <- case Map.lookup did (col ^. Mir.functions) of
+         Just x -> return x
+         Nothing -> fail $ "couldn't find cfg for " ++ nm
+     let st0 = initialCrucibleSetupState cc fn loc
 
      -- execute commands of the method spec
      io $ W4.setCurrentProgramLoc sym loc
      methodSpec <- view Setup.csMethodSpec <$>
                      execStateT
-                       (runReaderT (runJVMSetupM setup) Setup.makeCrucibleSetupRO)
+                       (runReaderT (runMIRSetupM setup) Setup.makeCrucibleSetupRO)
                      st0
 
-     -- construct the dynamic class table and declare static fields
-     globals1 <- liftIO $ setupGlobalState sym jc
-
      -- construct the initial state for verifications
-     (args, assumes, env, globals2) <- io $ verifyPrestate cc methodSpec globals1
+     (args, assumes, env, globals1) <- io $ verifyPrestate cc methodSpec Crucible.emptyGlobals
 
      -- save initial path conditions
      frameIdent <- io $ Crucible.pushAssumptionFrame bak
 
      -- run the symbolic execution
-     top_loc <- SS.toW4Loc "jvm_verify" <$> getPosition
-     (ret, globals3) <-
-       io $ verifySimulate opts cc pfs methodSpec args assumes top_loc lemmas globals2 checkSat mdMap
+     top_loc <- SS.toW4Loc "mir_verify" <$> getPosition
+     (ret, globals2) <-
+       io $ verifySimulate opts cc pfs methodSpec args assumes top_loc lemmas globals1 checkSat mdMap
 
      -- collect the proof obligations
      asserts <- verifyPoststate cc
-                    methodSpec env globals3 ret mdMap
+                    methodSpec env globals2 ret mdMap
 
      -- restore previous assumption state
      _ <- io $ Crucible.popAssumptionFrame bak frameIdent
@@ -345,8 +355,26 @@ mir_verify rm nm lemmas checkSat setup tactic =
      let diff = diffUTCTime end start
      ps <- io (MS.mkProvedSpec MS.SpecProved methodSpec stats vcstats lemmaSet diff)
      returnProof ps
-     -}
-     error "TODO RGS: mir_verify"
+  where
+    -- TODO RGS: Put this into crucible-mir
+    findDefId :: Map Text (NonEmpty Text) -> Mir.ExplodedDefId -> TopLevel Mir.DefId
+    findDefId crateDisambigs edid = do
+        (crate, path) <-
+          case edid of
+            crate:path -> pure (crate, path)
+            [] -> fail "findDefId: DefId with no crate"
+        let crateStr = Text.unpack crate
+        case Map.lookup crate crateDisambigs of
+            Just allDisambigs@(disambig :| otherDisambigs)
+              |  F.null otherDisambigs
+              -> pure $ Mir.textId $ Text.intercalate "::"
+                      $ (crate <> "/" <> disambig) : path
+              |  otherwise
+              -> fail $ unlines $
+                   [ "ambiguous crate " ++ crateStr
+                   , "crate disambiguators:"
+                   ] ++ F.toList (Text.unpack <$> allDisambigs)
+            Nothing -> fail $ "unknown crate " ++ crateStr
 
 -----
 -- Mir.Types
@@ -433,43 +461,6 @@ assertEqualVals cc v1 v2 =
      st <- sawCoreState sym
      toSC sym st =<< equalValsPred cc v1 v2
 
-equalValsPred ::
-  MIRCrucibleContext ->
-  MIRVal ->
-  MIRVal ->
-  IO (W4.Pred Sym)
-equalValsPred = error "TODO RGS: equalValsPred"
-{-
-equalValsPred cc (MIRVal shp1' v1') (MIRVal shp2' v2') =
-  go shp1' shp2' v1' v2'
-  where
-    sym = cc^.mccSym
-
-    go :: TypeShape tp1 -> TypeShape tp2
-       -> Crucible.RegValue Sym tp1 -> Crucible.RegValue Sym tp2
-       -> IO (W4.Pred Sym)
-    go shp1 shp2 v1 v2 =
-      case testEquality shp1 shp2 of
-        Just Refl ->
-          case shp1 of
-            UnitShape{} ->
-              pure (W4.truePred sym)
-            PrimShape{} ->
-              W4.isEq sym v1 v2
-            -- TupleShape{}
-            -- ArrayShape{}
-            -- FnPtrShape{}
-        Nothing ->
-          pure (W4.falsePred sym)
-
-    andAlso :: Bool -> IO (W4.Pred Sym) -> IO (W4.Pred Sym)
-    andAlso b x = if b then x else pure (W4.falsePred sym)
-
-    -- allEqual shp1 shp2 vs1 vs2 =
-    --   foldM (\x y -> andPred sym <$> x <*> y) (truePred sym) =<<
-    --     V.zipWithM (go shp1 shp2) vs1 vs2
--}
-
 registerOverride ::
   Options ->
   MIRCrucibleContext ->
@@ -483,7 +474,7 @@ registerOverride opts cc _ctx top_loc mdMap cs =
      let c0 = head cs
      let method = c0 ^. MS.csMethod
      let rm = cc^.mccRustModule
-     let cfgMap = rm^.rmCFGs
+     let cfgMap = rm ^. Mir.rmCFGs
 
      sc <- saw_ctx <$> liftIO (sawCoreState sym)
 
@@ -532,49 +523,60 @@ resolveArguments cc mspec env = mapM resolveArg [0..(nArgs-1)]
           return (mt, v)
         Nothing -> fail $ unwords ["Argument", show i, "unspecified when verifying", show nm]
 
-{-
 -- | For each points-to constraint in the pre-state section of the
 -- function spec, write the given value to the address of the given
 -- pointer.
-setupPrePointsTos :: forall arch.
-  ( ?lc :: Crucible.TypeContext
-  , ?memOpts :: Crucible.MemOptions
-  , ?w4EvalTactic :: W4EvalTactic
-  , Crucible.HasPtrWidth (Crucible.ArchWidth arch)
-  , Crucible.HasLLVMAnn Sym
-  ) =>
-  MS.CrucibleMethodSpecIR (LLVM arch)       ->
-  Options ->
-  LLVMCrucibleContext arch       ->
-  Map AllocIndex (LLVMPtr (Crucible.ArchWidth arch)) ->
-  [MS.PointsTo (LLVM arch)]                 ->
-  MemImpl                    ->
-  IO MemImpl
-setupPrePointsTos mspec opts cc env pts mem0 = foldM go mem0 pts
+setupPrePointsTos ::
+  MethodSpec ->
+  MIRCrucibleContext ->
+  Map MS.AllocIndex (Some (MirPointer Sym)) ->
+  [MirPointsTo] ->
+  Crucible.SymGlobalState Sym ->
+  IO (Crucible.SymGlobalState Sym)
+setupPrePointsTos _mspec _cc _env pts mem0 = foldM doPointsTo mem0 pts
   where
-    tyenv   = MS.csAllocations mspec
+    {-
+    sym = cc^.mccSym
+    tyenv = MS.csAllocations mspec
     nameEnv = mspec ^. MS.csPreState . MS.csVarTypeNames
+    -}
 
-    go :: MemImpl -> MS.PointsTo (LLVM arch) -> IO MemImpl
-    go mem (LLVMPointsTo _loc cond ptr val) =
-      do ptr' <- resolveSetupVal cc mem env tyenv nameEnv ptr
-         ptr'' <- unpackPtrVal ptr'
+    {-
+    injectSetupVal :: SetupValue -> IO (Crucible.RegValue Sym CJ.JVMValueType)
+    injectSetupVal rhs =
+      injectJVMVal sym <$> resolveSetupVal cc env tyenv nameEnv rhs
+    -}
 
-         cond' <- mapM (resolveSAWPred cc . ttTerm) cond
-
-         storePointsToValue opts cc env tyenv nameEnv mem cond' ptr'' val Nothing
-    go mem (LLVMPointsToBitfield _loc ptr fieldName val) =
-      do (bfIndex, ptr') <- resolveSetupValBitfield cc mem env tyenv nameEnv ptr fieldName
-         ptr'' <- unpackPtrVal ptr'
-
-         storePointsToBitfieldValue opts cc env tyenv nameEnv mem ptr'' bfIndex val
-
-    unpackPtrVal :: LLVMVal -> IO (LLVMPtr (Crucible.ArchWidth arch))
-    unpackPtrVal (Crucible.LLVMValInt blk off)
-        | Just Refl <- testEquality (W4.bvWidth off) Crucible.PtrWidth
-        = return (Crucible.LLVMPointer blk off)
-    unpackPtrVal _ = throwMethodSpec mspec "Non-pointer value found in points-to assertion"
--}
+    doPointsTo :: Crucible.SymGlobalState Sym -> MirPointsTo -> IO (Crucible.SymGlobalState Sym)
+    doPointsTo _mem _pt =
+      error "TODO RGS: doPointsTo"
+      {-
+      mccWithBackend cc $ \bak ->
+      case pt of
+        JVMPointsToField _loc lhs fid (Just rhs) ->
+          do let lhs' = lookupAllocIndex env lhs
+             rhs' <- injectSetupVal rhs
+             CJ.doFieldStore bak mem lhs' fid rhs'
+        JVMPointsToStatic _loc fid (Just rhs) ->
+          do rhs' <- injectSetupVal rhs
+             CJ.doStaticFieldStore bak jc mem fid rhs'
+        JVMPointsToElem _loc lhs idx (Just rhs) ->
+          do let lhs' = lookupAllocIndex env lhs
+             rhs' <- injectSetupVal rhs
+             CJ.doArrayStore bak mem lhs' idx rhs'
+        JVMPointsToArray _loc lhs (Just rhs) ->
+          do sc <- saw_ctx <$> sawCoreState sym
+             let lhs' = lookupAllocIndex env lhs
+             (_ety, tts) <-
+               destVecTypedTerm sc rhs >>=
+               \case
+                 Nothing -> fail "setupPrePointsTos: not a monomorphic sequence type"
+                 Just x -> pure x
+             rhs' <- traverse (injectSetupVal . MS.SetupTerm) tts
+             doEntireArrayStore bak mem lhs' rhs'
+        _ ->
+          panic "setupPrePointsTo" ["invalid invariant", "mir_modifies in pre-state"]
+        -}
 
 -- | Collects boolean terms that should be assumed to be true.
 -- TODO RGS: This seems copy-pasted, deduplicate?
@@ -662,6 +664,88 @@ verifyObligations cc mspec tactic assumes asserts =
      let vcstats = map snd outs
      return (stats, vcstats)
 
+-- TODO RGS: This seems heavily copy-pasted in both LLVM and JVM
+verifyPoststate ::
+  MIRCrucibleContext                        {- ^ crucible context        -} ->
+  MethodSpec                                {- ^ specification           -} ->
+  Map MS.AllocIndex (Some (MirPointer Sym)) {- ^ allocation substitution -} ->
+  Crucible.SymGlobalState Sym               {- ^ global variables        -} ->
+  Maybe (Mir.Ty, MIRVal)                    {- ^ optional return value   -} ->
+  IORef MetadataMap                         {- ^ metadata map            -} ->
+  TopLevel [(String, MS.ConditionMetadata, Term)] {- ^ generated labels and verification conditions -}
+verifyPoststate cc mspec env0 globals ret mdMap =
+  mccWithBackend cc $ \bak ->
+  do opts <- getOptions
+     sc <- getSharedContext
+     poststateLoc <- SS.toW4Loc "_SAW_verify_poststate" <$> getPosition
+     io $ W4.setCurrentProgramLoc sym poststateLoc
+
+     -- This discards all the obligations generated during
+     -- symbolic execution itself, i.e., which are not directly
+     -- generated from specification postconditions. This
+     -- is, in general, unsound.
+     skipSafetyProofs <- gets rwSkipSafetyProofs
+     when skipSafetyProofs (io (Crucible.clearProofObligations bak))
+
+     let ecs0 = Map.fromList
+           [ (ecVarIndex ec, ec)
+           | tt <- mspec ^. MS.csPreState . MS.csFreshVars
+           , let ec = tecExt tt ]
+     terms0 <- io $ traverse (scExtCns sc) ecs0
+
+     let initialFree = Set.fromList (map (ecVarIndex . tecExt)
+                                    (view (MS.csPostState . MS.csFreshVars) mspec))
+     matchPost <- io $
+          runOverrideMatcher sym globals env0 terms0 initialFree poststateLoc $
+           do matchResult opts sc
+              learnCond opts sc cc mspec MS.PostState (mspec ^. MS.csPostState)
+
+     st <- case matchPost of
+             Left err      -> fail (show err)
+             Right (_, st) -> return st
+     io $ forM_ (view osAsserts st) $ \(md, Crucible.LabeledPred p r) ->
+       do (ann,p') <- W4.annotateTerm sym p
+          modifyIORef mdMap (Map.insert ann md)
+          Crucible.addAssertion bak (Crucible.LabeledPred p' r)
+
+     finalMdMap <- io $ readIORef mdMap
+     obligations <- io $ Crucible.getProofObligations bak
+     io $ Crucible.clearProofObligations bak
+     io $ mapM (verifyObligation sc finalMdMap) (maybe [] Crucible.goalsToList obligations)
+
+  where
+    sym = cc^.mccSym
+
+    verifyObligation sc finalMdMap
+      (Crucible.ProofGoal hyps (Crucible.LabeledPred concl (Crucible.SimError loc err))) =
+      do st         <- sawCoreState sym
+         hypTerm <- toSC sym st =<< Crucible.assumptionsPred sym hyps
+         conclTerm  <- toSC sym st concl
+         obligation <- scImplies sc hypTerm conclTerm
+         let defaultMd = MS.ConditionMetadata
+                         { MS.conditionLoc = loc
+                         , MS.conditionTags = mempty
+                         , MS.conditionType = "safety assertion"
+                         , MS.conditionContext = ""
+                         }
+         let md = fromMaybe defaultMd $
+                    do ann <- W4.getAnnotation sym concl
+                       Map.lookup ann finalMdMap
+         return (Crucible.simErrorReasonMsg err, md, obligation)
+
+    matchResult opts sc =
+      case (ret, mspec ^. MS.csRetValue) of
+        (Just (rty,r), Just expect) ->
+            let md = MS.ConditionMetadata
+                     { MS.conditionLoc = mspec ^. MS.csLoc
+                     , MS.conditionTags = mempty
+                     , MS.conditionType = "return value matching"
+                     , MS.conditionContext = ""
+                     } in
+            matchArg opts sc cc mspec MS.PostState md r rty expect
+        (Nothing     , Just _ )     -> fail "verifyPoststate: unexpected mir_return specification"
+        _ -> return ()
+
 -- | Evaluate the precondition part of a Crucible method spec:
 --
 -- * Allocate heap space for each 'mir_alloc' statement.
@@ -678,49 +762,53 @@ verifyObligations cc mspec tactic assumes asserts =
 --
 -- Returns a tuple of (arguments, preconditions, pointer values,
 -- memory).
-{-
 verifyPrestate ::
-  Options ->
-  LLVMCrucibleContext arch ->
-  MS.CrucibleMethodSpecIR (LLVM arch) ->
+  MIRCrucibleContext ->
+  MS.CrucibleMethodSpecIR MIR ->
   Crucible.SymGlobalState Sym ->
-  IO ([(Crucible.MemType, LLVMVal)],
+  IO ([(Mir.Ty, MIRVal)],
       [Crucible.LabeledPred Term AssumptionReason],
-      Map AllocIndex (LLVMPtr (Crucible.ArchWidth arch)),
+      Map MS.AllocIndex (Some (MirPointer Sym)),
       Crucible.SymGlobalState Sym)
--}
-verifyPrestate opts cc mspec globals =
-  do -- let ?lc = ccTypeCtx cc
-     let sym = cc^.mccSym
+verifyPrestate cc mspec globals0 =
+  do let sym = cc^.mccSym
+     let tyenv = MS.csAllocations mspec
+     let nameEnv = mspec ^. MS.csPreState . MS.csVarTypeNames
+
      let prestateLoc = W4.mkProgramLoc "_SAW_verify_prestate" W4.InternalPos
      liftIO $ W4.setCurrentProgramLoc sym prestateLoc
 
-     {-
-     let lvar = Crucible.llvmMemVar (ccLLVMContext cc)
-     mem <-
-       case Crucible.lookupGlobal lvar globals of
-         Nothing  -> fail "internal error: LLVM Memory global not found"
-         Just mem -> pure mem
-     -}
-
-     {-
-     -- Allocate LLVM memory for each 'llvm_alloc'
-     (env, mem') <- runStateT
+     -- Allocate LLVM memory for each 'mir_alloc'
+     let doAlloc = error "TODO RGS: doAlloc"
+     (env, globals1) <- runStateT
        (Map.traverseWithKey (doAlloc cc) (mspec ^. MS.csPreState . MS.csAllocs))
-       mem
+       globals0
 
-     mem'' <- setupGlobalAllocs cc mspec mem'
+     globals2 <- setupPrePointsTos mspec cc env (mspec ^. MS.csPreState . MS.csPointsTos) globals1
+     cs <- setupPrestateConditions mspec cc env (mspec ^. MS.csPreState . MS.csConditions)
+     args <- resolveArguments cc mspec env
 
-     mem''' <- setupPrePointsTos mspec opts cc env (mspec ^. MS.csPreState . MS.csPointsTos) mem''
-
-     let globals1 = Crucible.insertGlobal lvar mem''' globals
-     (globals2,cs) <-
-       setupPrestateConditions mspec cc mem''' env globals1 (mspec ^. MS.csPreState . MS.csConditions)
-     args <- resolveArguments cc mem''' mspec env
+     -- Check the type of the return setup value
+     let methodStr = show (mspec ^. MS.csMethod)
+     case (mspec ^. MS.csRetValue, mspec ^. MS.csRet) of
+       (Just _, Nothing) ->
+            fail $ unlines
+              [ "Return value specified, but method " ++ methodStr ++
+                " has void return type"
+              ]
+       (Just sv, Just retTy) ->
+         do retTy' <- typeOfSetupValue cc tyenv nameEnv sv
+            -- TODO RGS: Consider using a coarser-grained equality test
+            -- than this
+            unless (retTy == retTy') $
+              fail $ unlines
+              [ "Incompatible types for return value when verifying " ++ methodStr
+              , "Expected: " ++ show retTy
+              , "but given value of type: " ++ show retTy'
+              ]
+       (Nothing, _) -> return ()
 
      return (args, cs, env, globals2)
-     -}
-     error "TODO RGS: verifyPrestate"
 
 verifySimulate ::
   Options ->
@@ -738,8 +826,9 @@ verifySimulate ::
 verifySimulate opts cc pfs mspec args assumes top_loc lemmas globals _checkSat mdMap =
   mccWithBackend cc $ \bak ->
   do let rm = cc^.mccRustModule
-     let cfgMap = rm^.rmCFGs
-     let col = rm^.rmCS^.collection
+     let cfgMap = rm ^. Mir.rmCFGs
+     let cs = rm ^. Mir.rmCS
+     let col = cs ^. Mir.collection
      let method = mspec ^. MS.csMethod
      let verbosity = simVerbose opts
      let halloc = cc^.mccHandleAllocator
@@ -749,39 +838,51 @@ verifySimulate opts cc pfs mspec args assumes top_loc lemmas globals _checkSat m
      when (verbosity > 2) $
           putStrLn "starting executeCrucibleMIR"
 
+     -- Translate the static initializer function
+     let ?debug = simVerbose opts
+     -- TODO RGS: For now, we use the same default settings for implicit parameters as in
+     -- crux-mir. We may want to add options later that allow configuring these.
+     let ?assertFalseOnError = True
+     let ?customOps          = customOps
+     Crucible.AnyCFG staticInitCfg <- Mir.transStatics cs halloc
+     let staticInitHndl = Crucible.cfgHandle staticInitCfg
+     Refl <- case testEquality (Crucible.handleArgTypes staticInitHndl) Ctx.Empty of
+       Just e -> pure e
+       Nothing -> fail "mir_verify: static initializer should not require arguments"
+
      -- Find and run the target function
      -- TODO RGS: Factor out CFG lookup logic into its own function
-     Crucible.AnyCFG cfg <- case Map.lookup (Mir.idText method) cfgMap of
+     Crucible.AnyCFG methodCfg <- case Map.lookup (Mir.idText method) cfgMap of
          Just x -> return x
          Nothing -> fail $ "couldn't find cfg for " ++ show method
-     let hf = Crucible.cfgHandle cfg
-     let argTys = Crucible.handleArgTypes hf
-     let retTy = Crucible.handleReturnType hf
+     let methodHndl = Crucible.cfgHandle methodCfg
+     let methodArgTys = Crucible.handleArgTypes methodHndl
+     let methodRetTy = Crucible.handleReturnType methodHndl
 
-     regmap <- prepareArgs argTys (map snd args)
+     regmap <- prepareArgs methodArgTys (map snd args)
      res <-
        do let feats = pfs
           let simctx = Crucible.initSimContext bak Mir.mirIntrinsicTypes halloc stdout
                          (Crucible.FnBindings Crucible.emptyHandleMap) Mir.mirExtImpl
                          SAWCruciblePersonality
-          let simSt = Crucible.InitialState simctx globals Crucible.defaultAbortHandler retTy
-          let fnCall = Crucible.regValue <$> Crucible.callFnVal (Crucible.HandleFnVal hf) regmap
+          let simSt = Crucible.InitialState simctx globals Crucible.defaultAbortHandler methodRetTy
+          let fnCall = Crucible.regValue <$> Crucible.callCFG methodCfg regmap
           let overrideSim =
-                do -- TODO RGS: Consider removing these putStrLns
-                   liftIO $ putStrLn "registering standard overrides"
-                   liftIO $ putStrLn "registering user-provided overrides"
+                do forM_ cfgMap $ \(Crucible.AnyCFG cfg) ->
+                     Crucible.bindFnHandle (Crucible.cfgHandle cfg) $
+                     Crucible.UseCFG cfg (Crucible.postdomInfo cfg)
+                   _ <- Crucible.callCFG staticInitCfg Crucible.emptyRegMap
+
                    mapM_ (registerOverride opts cc simctx top_loc mdMap)
                            (List.groupOn (view MS.csMethod) (map (view MS.psSpec) lemmas))
-                   liftIO $ putStrLn "registering assumptions"
                    liftIO $
                      for_ assumes $ \(Crucible.LabeledPred p (md, reason)) ->
                        do expr <- resolveSAWPred cc p
                           let loc = MS.conditionLoc md
                           Crucible.addAssumption bak (Crucible.GenericAssumption loc reason expr)
-                   liftIO $ putStrLn "simulating function"
                    fnCall
           Crucible.executeCrucible (map Crucible.genericToExecutionFeature feats)
-            (simSt (Crucible.runOverrideSim retTy overrideSim))
+            (simSt (Crucible.runOverrideSim methodRetTy overrideSim))
 
      case res of
        Crucible.FinishedResult _ pr ->
@@ -875,7 +976,7 @@ cryptolTypeOfActual mty =
     baseSizeType Mir.B128  = Just $ Cryptol.tWord $ Cryptol.tNum (128 :: Integer)
     baseSizeType Mir.USize = Just $ Cryptol.tWord $ Cryptol.tNum $ natValue $ knownNat @Mir.SizeBits
 
-setupCrucibleContext :: RustModule -> TopLevel MIRCrucibleContext
+setupCrucibleContext :: Mir.RustModule -> TopLevel MIRCrucibleContext
 setupCrucibleContext rm =
   do halloc <- getHandleAlloc
      sc <- getSharedContext

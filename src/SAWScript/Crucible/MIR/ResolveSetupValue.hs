@@ -17,6 +17,7 @@ module SAWScript.Crucible.MIR.ResolveSetupValue
   , resolveTypedTerm
   , resolveBoolTerm
   , resolveSAWPred
+  , equalRefsPred
   , equalValsPred
   , MIRTypeOfError(..)
   ) where
@@ -35,6 +36,11 @@ import           Data.Void (absurd)
 import qualified Cryptol.Eval.Type as Cryptol (TValue(..), tValTy, evalValType)
 import qualified Cryptol.TypeCheck.AST as Cryptol (Type, Schema(..))
 import qualified Cryptol.Utils.PP as Cryptol (pp)
+import Lang.Crucible.Simulator (RegValue)
+import qualified Mir.Generator as Mir
+import qualified Mir.Intrinsics as Mir
+import Mir.Intrinsics (MIR)
+import qualified Mir.Mir as Mir
 
 import qualified What4.BaseTypes as W4
 import qualified What4.Interface as W4
@@ -46,24 +52,13 @@ import qualified Verifier.SAW.Simulator.Concrete as Concrete
 import Verifier.SAW.Simulator.What4.ReturnTrip
 import Verifier.SAW.TypedTerm
 
--- crucible
-import Lang.Crucible.Simulator (RegValue)
-
--- crucible-mir
-import qualified Mir.Generator as Mir
-import Mir.Intrinsics (MIR, MirVector(..))
-import qualified Mir.Mir as Mir
-
--- what4
-
 import SAWScript.Crucible.Common
+import qualified SAWScript.Crucible.Common.MethodSpec as MS
 import SAWScript.Crucible.Common.MethodSpec (AllocIndex(..))
-
-import SAWScript.Panic
+import SAWScript.Crucible.Common.ResolveSetupValue (resolveBoolTerm)
 import SAWScript.Crucible.MIR.MethodSpecIR
 import SAWScript.Crucible.MIR.TypeShape
-import qualified SAWScript.Crucible.Common.MethodSpec as MS
-import SAWScript.Crucible.Common.ResolveSetupValue (resolveBoolTerm)
+import SAWScript.Panic
 
 -- | TODO RGS: Docs
 data MIRVal where
@@ -251,7 +246,7 @@ resolveSAWTerm mcc tp tm =
 
           vals <- V.generateM sz' f
           pure $ MIRVal (ArrayShape (Mir.TyArray mirTy sz') mirTy shp)
-               $ MirVector_Vector vals
+               $ Mir.MirVector_Vector vals
     Cryptol.TVStream _tp' ->
       fail "resolveSAWTerm: unsupported infinite stream type"
     Cryptol.TVTuple tps -> do
@@ -347,6 +342,19 @@ toMIRType tp =
     Cryptol.TVFun _ _ -> Left (Impossible "function")
     Cryptol.TVAbstract _ _ -> Left (Impossible "abstract")
     Cryptol.TVNewtype{} -> Left (Impossible "newtype")
+
+-- | TODO RGS: Docs
+equalRefsPred ::
+  MIRCrucibleContext ->
+  MirPointer Sym tp1 ->
+  MirPointer Sym tp2 ->
+  IO (W4.Pred Sym)
+equalRefsPred cc mp1 mp2 =
+  mccWithBackend cc $ \bak ->
+  let sym = backendGetSym bak in
+  case W4.testEquality (mp1^.mpType) (mp2^.mpType) of
+    Nothing -> pure $ W4.falsePred sym
+    Just Refl -> Mir.mirRef_eqIO bak (mp1^.mpRef) (mp2^.mpRef)
 
 equalValsPred ::
   MIRCrucibleContext ->

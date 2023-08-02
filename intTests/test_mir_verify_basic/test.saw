@@ -1,12 +1,41 @@
 enable_experimental;
 
-let id_u32_spec = do {
-  x <- mir_fresh_var "x" mir_u32;
+let id_spec mty = do {
+  x <- mir_fresh_var "x" mty;
 
   mir_execute_func [mir_term x];
 
   mir_return (mir_term x);
 };
 
+let id_u32_wrong = do {
+  x <- mir_fresh_var "x" (mir_u32);
+
+  mir_execute_func [mir_term x];
+
+  mir_return (mir_term {{ x + 1 : [32] }});
+};
+
+let id_unit = do {
+  x <- mir_fresh_var "x" (mir_tuple []);
+
+  mir_execute_func [mir_term x];
+};
+
 m <- mir_load_module "test.linked-mir.json";
-mir_verify m "test::id_u32" [] false id_u32_spec z3;
+// mir_verify m "test::id_i8" [] false (id_spec mir_i8) z3;
+// mir_verify m "test::id_i16" [] false (id_spec mir_i16) z3;
+// mir_verify m "test::id_i32" [] false (id_spec mir_i32) z3;
+// mir_verify m "test::id_i64" [] false (id_spec mir_i64) z3;
+// mir_verify m "test::id_isize" [] false (id_spec mir_isize) z3;
+mir_verify m "test::id_u8" [] false (id_spec mir_u8) z3;
+mir_verify m "test::id_u16" [] false (id_spec mir_u16) z3;
+mir_verify m "test::id_u32" [] false (id_spec mir_u32) z3;
+mir_verify m "test::id_u64" [] false (id_spec mir_u64) z3;
+// mir_verify m "test::id_usize" [] false (id_spec mir_usize) z3;
+mir_verify m "test::id_unit" [] false id_unit z3;
+
+
+fails (
+  mir_verify m "test::id_u32" [] false id_u32_wrong z3
+);

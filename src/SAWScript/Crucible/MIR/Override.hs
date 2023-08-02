@@ -1,4 +1,6 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- | TODO RGS: Docs
 module SAWScript.Crucible.MIR.Override
@@ -34,11 +36,13 @@ import qualified Lang.Crucible.Simulator as Crucible
 import qualified Mir.Intrinsics as Mir
 import Mir.Intrinsics (MIR)
 import qualified Mir.Mir as Mir
+import qualified What4.Expr as W4
 import qualified What4.Interface as W4
 import qualified What4.ProgramLoc as W4
 
 import Verifier.SAW.Prelude (scEq)
 import Verifier.SAW.SharedTerm
+import Verifier.SAW.Simulator.What4.ReturnTrip (saw_ctx, toSC)
 import Verifier.SAW.TypedAST
 import Verifier.SAW.TypedTerm
 
@@ -159,10 +163,10 @@ instantiateSetupValue sc s v =
     MS.SetupTerm tt                   -> MS.SetupTerm <$> doTerm tt
     MS.SetupNull empty                -> absurd empty
     MS.SetupGlobal empty _            -> absurd empty
-    MS.SetupStruct empty _ _          -> return v
-    MS.SetupArray empty _             -> return v
-    MS.SetupElem empty _ _            -> return v
-    MS.SetupField empty _ _           -> return v
+    MS.SetupStruct _ _ _              -> return v
+    MS.SetupArray _ _                 -> return v
+    MS.SetupElem _ _ _                -> return v
+    MS.SetupField _ _ _               -> return v
     MS.SetupCast empty _ _            -> absurd empty
     MS.SetupUnion empty _ _           -> absurd empty
     MS.SetupGlobalInitializer empty _ -> absurd empty
@@ -204,6 +208,19 @@ learnEqual opts sc cc spec md prepost v1 v2 =
      let name = "equality " ++ stateCond prepost
      let loc = MS.conditionLoc md
      addAssert p md (Crucible.SimError loc (Crucible.AssertFailureSimError name ""))
+
+-- | Process a "points_to" statement from the precondition section of
+-- the CrucibleSetup block. First, load the value from the address
+-- indicated by 'ptr', and then match it against the pattern 'val'.
+learnPointsTo ::
+  Options                    ->
+  SharedContext              ->
+  MIRCrucibleContext         ->
+  CrucibleMethodSpecIR       ->
+  MS.PrePost                 ->
+  MirPointsTo                ->
+  OverrideMatcher MIR w ()
+learnPointsTo _opts _sc _cc _spec _prepost _pt = error "TODO RGS: learnPointsTo"
 
 -- | Process a "crucible_precond" statement from the precondition
 -- section of the CrucibleSetup block.
@@ -273,6 +290,54 @@ matchArg opts sc cc cs prepost md actual@(MIRVal (RefShape _refTy pointeeTy mutb
 matchArg opts sc cc cs _prepost md actual expectedTy expected =
   failure (MS.conditionLoc md) =<<
     mkStructuralMismatch opts cc sc cs actual expected expectedTy
+
+-- | For each points-to statement read the memory value through the
+-- given pointer (lhs) and match the value against the given pattern
+-- (rhs).  Statements are processed in dependency order: a points-to
+-- statement cannot be executed until bindings for any/all lhs
+-- variables exist.
+matchPointsTos ::
+  Options          {- ^ saw script print out opts -} ->
+  SharedContext    {- ^ term construction context -} ->
+  MIRCrucibleContext  {- ^ simulator context     -}  ->
+  CrucibleMethodSpecIR                               ->
+  MS.PrePost                                         ->
+  [MirPointsTo]       {- ^ points-tos                -} ->
+  OverrideMatcher MIR w ()
+matchPointsTos opts sc cc spec prepost = go False []
+  where
+    go ::
+      Bool       {- progress indicator -} ->
+      [MirPointsTo] {- delayed conditions -} ->
+      [MirPointsTo] {- queued conditions  -} ->
+      OverrideMatcher MIR w ()
+
+    -- all conditions processed, success
+    go _ [] [] = return ()
+
+    -- not all conditions processed, no progress, failure
+    go False delayed [] = failure (spec ^. MS.csLoc) (AmbiguousPointsTos delayed)
+
+    -- not all conditions processed, progress made, resume delayed conditions
+    go True delayed [] = go False [] delayed
+
+    -- progress the next points-to in the work queue
+    go progress delayed (c:cs) =
+      do ready <- checkPointsTo c
+         if ready then
+           do learnPointsTo opts sc cc spec prepost c
+              go True delayed cs
+         else
+           do go progress (c:delayed) cs
+
+    -- determine if a precondition is ready to be checked
+    checkPointsTo :: MirPointsTo -> OverrideMatcher MIR w Bool
+    checkPointsTo = error "TODO RGS: matchPointsTos.checkPointsTo"
+
+    checkAllocIndex :: AllocIndex -> OverrideMatcher MIR w Bool
+    checkAllocIndex i =
+      do m <- OM (use setupValueSub)
+         return (Map.member i m)
 
 matchTerm ::
   SharedContext   {- ^ context for constructing SAW terms    -} ->
@@ -359,9 +424,29 @@ valueToSC ::
   Cryptol.TValue ->
   MIRVal ->
   OverrideMatcher MIR w Term
-valueToSC _sym _md _failMsg _tval _val =
-  error "TODO RGS: valueToSC"
-{-
-valueToSC _sym md failMsg _tval _val =
-  failure (MS.conditionLoc md) failMsg
--}
+valueToSC sym md failMsg tval (MIRVal shp val) =
+  case (tval, shp) of
+    (Cryptol.TVBit, PrimShape _ W4.BaseBoolRepr) ->
+      liftIO (toSC sym st val)
+    (Cryptol.TVSeq n Cryptol.TVBit, PrimShape _ (W4.BaseBVRepr w))
+      |  n == 8, Just Refl <- testEquality w (W4.knownNat @8)
+      -> liftIO (toSC sym st val)
+      |  n == 16, Just Refl <- testEquality w (W4.knownNat @16)
+      -> liftIO (toSC sym st val)
+      |  n == 32, Just Refl <- testEquality w (W4.knownNat @32)
+      -> liftIO (toSC sym st val)
+      |  n == 64, Just Refl <- testEquality w (W4.knownNat @64)
+      -> liftIO (toSC sym st val)
+      |  n == 128, Just Refl <- testEquality w (W4.knownNat @128)
+      -> liftIO (toSC sym st val)
+    (Cryptol.TVTuple [], UnitShape _) ->
+      liftIO (scUnitValue sc)
+    (Cryptol.TVTuple _tys, TupleShape _ _ _) ->
+      error "TODO RGS: valueToSC tuples"
+    (Cryptol.TVSeq _n _cryty, ArrayShape _ _ _) ->
+      error "TODO RGS: valueToSC arrays"
+    _ ->
+      failure (MS.conditionLoc md) failMsg
+  where
+    st = sym ^. W4.userState
+    sc = saw_ctx st

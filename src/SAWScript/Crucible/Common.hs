@@ -67,11 +67,13 @@ type Sym = W4.ExprBuilder Nonce.GlobalNonceGenerator SAWCoreState (W4.Flags W4.F
 type Backend solver = OnlineBackend solver Nonce.GlobalNonceGenerator SAWCoreState (W4.Flags W4.FloatReal)
 
 data SomeOnlineBackend =
-  forall solver. OnlineSolver solver => 
+  forall solver. OnlineSolver solver =>
     SomeOnlineBackend (Backend solver)
 
 data SAWCruciblePersonality sym = SAWCruciblePersonality
 
+-- TODO RGS: Why is this in IO? Actually, why does this function even exist?
+-- It's such a simple wrapper around W4.userState... why not just use that?
 sawCoreState :: Sym -> IO (SAWCoreState Nonce.GlobalNonceGenerator)
 sawCoreState sym = pure (sym ^. W4.userState)
 

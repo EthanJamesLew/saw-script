@@ -285,19 +285,10 @@ mir_verify ::
   TopLevel Lemma
 mir_verify rm nm lemmas checkSat setup tactic =
   do start <- io getCurrentTime
-     -- cb <- getJavaCodebase
      opts <- getOptions
 
      -- set up the metadata map for tracking proof obligation metadata
      mdMap <- io $ newIORef mempty
-
-     {-
-     -- allocate all of the handles/static vars that are referenced
-     -- (directly or indirectly) by this class
-     allRefs <- io $ Set.toList <$> allClassRefs cb (J.className cls)
-     let refs = CJ.initClasses ++ allRefs -- ++ superRefs
-     mapM_ (prepareClassTopLevel . J.unClassName) refs
-     -}
 
      cc <- setupCrucibleContext rm
      SomeOnlineBackend bak <- pure (cc^.mccBackend)
@@ -328,6 +319,9 @@ mir_verify rm nm lemmas checkSat setup tactic =
                        (runReaderT (runMIRSetupM setup) Setup.makeCrucibleSetupRO)
                      st0
 
+     printOutLnTop Info $
+       unwords ["Verifying", show (methodSpec ^. MS.csMethod), "..."]
+
      -- construct the initial state for verifications
      (args, assumes, env, globals1) <- io $ verifyPrestate cc methodSpec Crucible.emptyGlobals
 
@@ -335,6 +329,8 @@ mir_verify rm nm lemmas checkSat setup tactic =
      frameIdent <- io $ Crucible.pushAssumptionFrame bak
 
      -- run the symbolic execution
+     printOutLnTop Info $
+       unwords ["Simulating", show (methodSpec ^. MS.csMethod), "..."]
      top_loc <- SS.toW4Loc "mir_verify" <$> getPosition
      (ret, globals2) <-
        io $ verifySimulate opts cc pfs methodSpec args assumes top_loc lemmas globals1 checkSat mdMap
@@ -347,6 +343,8 @@ mir_verify rm nm lemmas checkSat setup tactic =
      _ <- io $ Crucible.popAssumptionFrame bak frameIdent
 
      -- attempt to verify the proof obligations
+     printOutLnTop Info $
+       unwords ["Checking proof obligations", show (methodSpec ^. MS.csMethod), "..."]
      (stats,vcstats) <- verifyObligations cc methodSpec tactic assumes asserts
      io $ writeFinalProfile
 
@@ -606,6 +604,7 @@ setupPrestateConditions mspec cc env = aux []
 
     aux _ (MS.SetupCond_Ghost empty_ _ _ _ : _) = absurd empty_
 
+-- | TODO RGS: I think most of this is copy-pasted
 verifyObligations ::
   MIRCrucibleContext ->
   MethodSpec ->

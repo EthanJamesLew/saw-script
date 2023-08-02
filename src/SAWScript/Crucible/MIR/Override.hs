@@ -63,6 +63,16 @@ type CrucibleMethodSpecIR = MS.CrucibleMethodSpecIR MIR
 type StateSpec = MS.StateSpec MIR
 type SetupCondition = MS.SetupCondition MIR
 
+assertTermEqualities ::
+  SharedContext ->
+  MIRCrucibleContext ->
+  OverrideMatcher MIR md ()
+assertTermEqualities sc cc = do
+  let assertTermEquality (t, md, e) = do
+        p <- instantiateExtResolveSAWPred sc cc t
+        addAssert p md e
+  traverse_ assertTermEquality =<< OM (use termEqs)
+
 -- | Assign the given reference value to the given allocation index in
 -- the current substitution. If there is already a binding for this
 -- index, then add a reference-equality constraint.
@@ -148,6 +158,15 @@ enforceDisjointness cc loc ss =
         , (_, Some q)      <- ps
         ]
 
+instantiateExtResolveSAWPred ::
+  SharedContext ->
+  MIRCrucibleContext ->
+  Term ->
+  OverrideMatcher MIR md (W4.Pred Sym)
+instantiateExtResolveSAWPred sc cc cond = do
+  sub <- OM (use termSub)
+  liftIO $ resolveSAWPred cc =<< scInstantiateExt sc sub cond
+
 -- | Map the given substitution over all 'SetupTerm' constructors in
 -- the given 'SetupValue'.
 --
@@ -186,6 +205,7 @@ learnCond opts sc cc cs prepost ss =
   do let loc = cs ^. MS.csLoc
      matchPointsTos opts sc cc cs prepost (ss ^. MS.csPointsTos)
      traverse_ (learnSetupCondition opts sc cc cs prepost) (ss ^. MS.csConditions)
+     assertTermEqualities sc cc
      enforceDisjointness cc loc ss
      enforceCompleteSubstitution loc ss
 

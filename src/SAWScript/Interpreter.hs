@@ -3764,7 +3764,7 @@ primitives = Map.fromList
 
   , prim "mir_alloc" "MIRType -> MIRSetup SetupValue"
     (pureVal mir_alloc)
-    Current
+    Experimental
     [ "Declare that an immutable reference to the given type should be allocated"
     , "in a MIR specification. Before `mir_execute_func`, this states that"
     , "the function expects the object to be allocated before it runs."
@@ -3774,7 +3774,7 @@ primitives = Map.fromList
 
   , prim "mir_alloc_mut" "MIRType -> MIRSetup SetupValue"
     (pureVal mir_alloc_mut)
-    Current
+    Experimental
     [ "Declare that a mutable reference to the given type should be allocated"
     , "in a MIR specification. Before `mir_execute_func`, this states that"
     , "the function expects the object to be allocated before it runs."
@@ -3784,7 +3784,7 @@ primitives = Map.fromList
 
   , prim "mir_assert" "Term -> MIRSetup ()"
     (pureVal mir_assert)
-    Current
+    Experimental
     [ "State that the given predicate must hold.  Acts as `mir_precond`"
     , "or `mir_postcond` depending on the phase of specification in which"
     , "it appears (i.e., before or after `mir_execute_func`."
@@ -3792,7 +3792,7 @@ primitives = Map.fromList
 
   , prim "mir_execute_func" "[MIRValue] -> MIRSetup ()"
     (pureVal mir_execute_func)
-    Current
+    Experimental
     [ "Specify the given list of values as the arguments of the method."
     ,  ""
     , "The mir_execute_func statement also serves to separate the pre-state"
@@ -3804,7 +3804,7 @@ primitives = Map.fromList
 
   , prim "mir_fresh_var" "String -> MIRType -> MIRSetup Term"
     (pureVal mir_fresh_var)
-    Current
+    Experimental
     [ "Create a fresh symbolic variable for use within a MIR"
     , "specification. The name is used only for pretty-printing."
     ]
@@ -3816,21 +3816,21 @@ primitives = Map.fromList
 
   , prim "mir_postcond" "Term -> MIRSetup ()"
     (pureVal mir_postcond)
-    Current
+    Experimental
     [ "State that the given predicate is a post-condition of execution of the"
     , "method being verified."
     ]
 
   , prim "mir_precond" "Term -> MIRSetup ()"
     (pureVal mir_precond)
-    Current
+    Experimental
     [ "State that the given predicate is a pre-condition on execution of the"
     , "method being verified."
     ]
 
   , prim "mir_return" "MIRValue -> MIRSetup ()"
     (pureVal mir_return)
-    Current
+    Experimental
     [ "Specify the given value as the return value of the method. A"
     , "mir_return statement is required if and only if the method"
     , "has a non-() return type." ]
@@ -3838,13 +3838,13 @@ primitives = Map.fromList
   , prim "mir_term"
     "Term -> MIRValue"
     (pureVal (CMS.SetupTerm :: TypedTerm -> CMS.SetupValue MIR))
-    Current
+    Experimental
     [ "Construct a `MIRValue` from a `Term`." ]
 
   , prim "mir_verify"
     "MIRModule -> String -> [MIRSpec] -> Bool -> MIRSetup () -> ProofScript () -> TopLevel MIRSpec"
     (pureVal mir_verify)
-    Current
+    Experimental
     [ "Verify the MIR function named by the second parameter in the module"
     , "specified by the first. The third parameter lists the MIRSpec"
     , "values returned by previous calls to use as overrides. The fourth (Bool)"

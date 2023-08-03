@@ -27,13 +27,11 @@ import qualified Data.Map as Map
 import Data.Map (Map)
 import Data.Parameterized.Some (Some(..))
 import qualified Data.Set as Set
-import Data.Type.Equality (TestEquality(..), (:~:)(..))
 import Data.Void (absurd)
 
 import qualified Cryptol.TypeCheck.AST as Cryptol
-import qualified Cryptol.Eval.Type as Cryptol (TValue(..), evalType, evalValType)
+import qualified Cryptol.Eval.Type as Cryptol (TValue(..), evalType)
 import qualified Lang.Crucible.Simulator as Crucible
-import qualified Mir.Intrinsics as Mir
 import Mir.Intrinsics (MIR)
 import qualified Mir.Mir as Mir
 import qualified What4.Expr as W4
@@ -55,6 +53,7 @@ import SAWScript.Crucible.MIR.MethodSpecIR
 import SAWScript.Crucible.MIR.ResolveSetupValue
 import SAWScript.Crucible.MIR.TypeShape
 import SAWScript.Options
+import SAWScript.Panic
 import SAWScript.Utils (handleException)
 
 -- A few convenient synonyms
@@ -109,7 +108,7 @@ assignTerm sc cc md prepost var val =
 decodeMIRVal :: Mir.Collection -> Mir.Ty -> Crucible.AnyValue Sym -> Maybe MIRVal
 decodeMIRVal col ty (Crucible.AnyValue repr rv)
   | Some shp <- tyToShape col ty
-  = case testEquality repr (shapeType shp) of
+  = case W4.testEquality repr (shapeType shp) of
       Just Refl -> Just (MIRVal shp rv)
       Nothing   -> Nothing
 
@@ -240,7 +239,8 @@ learnPointsTo ::
   MS.PrePost                 ->
   MirPointsTo                ->
   OverrideMatcher MIR w ()
-learnPointsTo _opts _sc _cc _spec _prepost _pt = error "TODO RGS: learnPointsTo"
+learnPointsTo _opts _sc _cc _spec _prepost _pt =
+  panic "learnPointsTo" ["not yet implemented"]
 
 -- | Process a "crucible_precond" statement from the precondition
 -- section of the CrucibleSetup block.
@@ -293,7 +293,7 @@ matchArg opts sc cc cs prepost md actual expectedTy expected@(MS.SetupTerm expec
        realTerm <- valueToSC sym md failMsg tval actual
        matchTerm sc cc md prepost realTerm (ttTerm expectedTT)
 
-matchArg opts sc cc cs prepost md actual@(MIRVal (RefShape _refTy pointeeTy mutbl tpr) ref) expectedTy setupval =
+matchArg opts sc cc cs _prepost md actual@(MIRVal (RefShape _refTy pointeeTy mutbl tpr) ref) expectedTy setupval =
   case setupval of
     MS.SetupVar var ->
       do assignVar cc md var (Some (MirPointer tpr mutbl pointeeTy ref))
@@ -352,12 +352,7 @@ matchPointsTos opts sc cc spec prepost = go False []
 
     -- determine if a precondition is ready to be checked
     checkPointsTo :: MirPointsTo -> OverrideMatcher MIR w Bool
-    checkPointsTo = error "TODO RGS: matchPointsTos.checkPointsTo"
-
-    checkAllocIndex :: AllocIndex -> OverrideMatcher MIR w Bool
-    checkAllocIndex i =
-      do m <- OM (use setupValueSub)
-         return (Map.member i m)
+    checkPointsTo = panic "matchPointsTos" ["not yet implemented"]
 
 matchTerm ::
   SharedContext   {- ^ context for constructing SAW terms    -} ->
@@ -449,22 +444,22 @@ valueToSC sym md failMsg tval (MIRVal shp val) =
     (Cryptol.TVBit, PrimShape _ W4.BaseBoolRepr) ->
       liftIO (toSC sym st val)
     (Cryptol.TVSeq n Cryptol.TVBit, PrimShape _ (W4.BaseBVRepr w))
-      |  n == 8, Just Refl <- testEquality w (W4.knownNat @8)
+      |  n == 8, Just W4.Refl <- W4.testEquality w (W4.knownNat @8)
       -> liftIO (toSC sym st val)
-      |  n == 16, Just Refl <- testEquality w (W4.knownNat @16)
+      |  n == 16, Just W4.Refl <- W4.testEquality w (W4.knownNat @16)
       -> liftIO (toSC sym st val)
-      |  n == 32, Just Refl <- testEquality w (W4.knownNat @32)
+      |  n == 32, Just W4.Refl <- W4.testEquality w (W4.knownNat @32)
       -> liftIO (toSC sym st val)
-      |  n == 64, Just Refl <- testEquality w (W4.knownNat @64)
+      |  n == 64, Just W4.Refl <- W4.testEquality w (W4.knownNat @64)
       -> liftIO (toSC sym st val)
-      |  n == 128, Just Refl <- testEquality w (W4.knownNat @128)
+      |  n == 128, Just W4.Refl <- W4.testEquality w (W4.knownNat @128)
       -> liftIO (toSC sym st val)
     (Cryptol.TVTuple [], UnitShape _) ->
       liftIO (scUnitValue sc)
     (Cryptol.TVTuple _tys, TupleShape _ _ _) ->
-      error "TODO RGS: valueToSC tuples"
+      panic "valueToSC" ["tuples not yet implemented"]
     (Cryptol.TVSeq _n _cryty, ArrayShape _ _ _) ->
-      error "TODO RGS: valueToSC arrays"
+      panic "valueToSC" ["arrays not yet implemented"]
     _ ->
       failure (MS.conditionLoc md) failMsg
   where

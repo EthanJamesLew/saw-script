@@ -63,7 +63,6 @@ import qualified Data.Parameterized.Context as Ctx
 import Data.Parameterized.NatRepr (knownNat, natValue)
 import Data.Parameterized.Some (Some(..))
 import qualified Data.Set as Set
-import Data.Set (Set)
 import qualified Data.Text as Text
 import Data.Text (Text)
 import Data.Time.Clock (diffUTCTime, getCurrentTime)
@@ -79,7 +78,6 @@ import qualified Lang.Crucible.Backend as Crucible
 import qualified Lang.Crucible.CFG.Core as Crucible
 import qualified Lang.Crucible.FunctionHandle as Crucible
 import qualified Lang.Crucible.Simulator as Crucible
-import qualified Lang.Crucible.Simulator.GlobalState as Crucible
 import qualified Lang.Crucible.Simulator.SimError as Crucible
 
 import qualified Mir.DefId as Mir
@@ -92,15 +90,9 @@ import qualified Mir.Trans as Mir
 import Mir.TransCustom (customOps)
 import qualified Mir.TransTy as Mir
 
-import qualified What4.Concrete as W4
 import qualified What4.Config as W4
-import qualified What4.Expr.Builder as W4
-import qualified What4.FunctionName as W4
 import qualified What4.Interface as W4
-import qualified What4.LabeledPred as W4
-import qualified What4.Partial as W4
 import qualified What4.ProgramLoc as W4
-import qualified What4.Utils.StringLiteral as W4S
 
 import Verifier.SAW.FiniteValue (ppFirstOrderValue)
 import Verifier.SAW.Name (toShortName)
@@ -119,6 +111,7 @@ import SAWScript.Crucible.MIR.ResolveSetupValue
 import SAWScript.Crucible.MIR.TypeShape
 import SAWScript.Exceptions
 import SAWScript.Options
+import SAWScript.Panic
 import qualified SAWScript.Position as SS
 import SAWScript.Proof
 import SAWScript.Prover.SolverStats
@@ -488,7 +481,8 @@ registerOverride opts cc _ctx top_loc mdMap cs =
        $ Crucible.mkOverride'
            (Crucible.handleName h)
            retTy
-           ({-methodSpecHandler-} error "TODO RGS: registerOverride" opts sc cc top_loc mdMap cs h)
+           ({-methodSpecHandler-}
+            panic "registerOverride" ["not yet implemented"] opts sc cc top_loc mdMap cs h)
 
 resolveArguments ::
   MIRCrucibleContext ->
@@ -533,48 +527,9 @@ setupPrePointsTos ::
   IO (Crucible.SymGlobalState Sym)
 setupPrePointsTos _mspec _cc _env pts mem0 = foldM doPointsTo mem0 pts
   where
-    {-
-    sym = cc^.mccSym
-    tyenv = MS.csAllocations mspec
-    nameEnv = mspec ^. MS.csPreState . MS.csVarTypeNames
-    -}
-
-    {-
-    injectSetupVal :: SetupValue -> IO (Crucible.RegValue Sym CJ.JVMValueType)
-    injectSetupVal rhs =
-      injectJVMVal sym <$> resolveSetupVal cc env tyenv nameEnv rhs
-    -}
-
     doPointsTo :: Crucible.SymGlobalState Sym -> MirPointsTo -> IO (Crucible.SymGlobalState Sym)
     doPointsTo _mem _pt =
-      error "TODO RGS: doPointsTo"
-      {-
-      mccWithBackend cc $ \bak ->
-      case pt of
-        JVMPointsToField _loc lhs fid (Just rhs) ->
-          do let lhs' = lookupAllocIndex env lhs
-             rhs' <- injectSetupVal rhs
-             CJ.doFieldStore bak mem lhs' fid rhs'
-        JVMPointsToStatic _loc fid (Just rhs) ->
-          do rhs' <- injectSetupVal rhs
-             CJ.doStaticFieldStore bak jc mem fid rhs'
-        JVMPointsToElem _loc lhs idx (Just rhs) ->
-          do let lhs' = lookupAllocIndex env lhs
-             rhs' <- injectSetupVal rhs
-             CJ.doArrayStore bak mem lhs' idx rhs'
-        JVMPointsToArray _loc lhs (Just rhs) ->
-          do sc <- saw_ctx <$> sawCoreState sym
-             let lhs' = lookupAllocIndex env lhs
-             (_ety, tts) <-
-               destVecTypedTerm sc rhs >>=
-               \case
-                 Nothing -> fail "setupPrePointsTos: not a monomorphic sequence type"
-                 Just x -> pure x
-             rhs' <- traverse (injectSetupVal . MS.SetupTerm) tts
-             doEntireArrayStore bak mem lhs' rhs'
-        _ ->
-          panic "setupPrePointsTo" ["invalid invariant", "mir_modifies in pre-state"]
-        -}
+      panic "setupPrePointsTo" ["not yet implemented"]
 
 -- | Collects boolean terms that should be assumed to be true.
 -- TODO RGS: This seems copy-pasted, deduplicate?
@@ -778,7 +733,7 @@ verifyPrestate cc mspec globals0 =
      liftIO $ W4.setCurrentProgramLoc sym prestateLoc
 
      -- Allocate LLVM memory for each 'mir_alloc'
-     let doAlloc = error "TODO RGS: doAlloc"
+     let doAlloc = panic "verifyPrestate.doAlloc" ["not yet implemented"]
      (env, globals1) <- runStateT
        (Map.traverseWithKey (doAlloc cc) (mspec ^. MS.csPreState . MS.csAllocs))
        globals0

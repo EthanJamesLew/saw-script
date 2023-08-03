@@ -117,10 +117,10 @@ typeOfSetupValue _mcc env _nameEnv val =
 
     MS.SetupNull empty                -> absurd empty
     MS.SetupGlobal empty _            -> absurd empty
-    MS.SetupStruct _ _ _              -> error "TODO RGS: Structs"
-    MS.SetupArray _ _                 -> error "TODO RGS: Arrays"
-    MS.SetupElem _ _ _                -> error "TODO RGS: Elems"
-    MS.SetupField _ _ _               -> error "TODO RGS: Fields"
+    MS.SetupStruct _ _ _              -> panic "typeOfSetupValue" ["structs not yet implemented"]
+    MS.SetupArray _ _                 -> panic "typeOfSetupValue" ["arrays not yet implemented"]
+    MS.SetupElem _ _ _                -> panic "typeOfSetupValue" ["elems not yet implemented"]
+    MS.SetupField _ _ _               -> panic "typeOfSetupValue" ["fields not yet implemented"]
     MS.SetupCast empty _ _            -> absurd empty
     MS.SetupUnion empty _ _           -> absurd empty
     MS.SetupGlobalInitializer empty _ -> absurd empty
@@ -154,10 +154,10 @@ resolveSetupVal mcc env _tyenv _nameEnv val =
     MS.SetupTerm tm -> resolveTypedTerm mcc tm
     MS.SetupNull empty                -> absurd empty
     MS.SetupGlobal empty _            -> absurd empty
-    MS.SetupStruct _ _ _              -> error "TODO RGS: Structs"
-    MS.SetupArray _ _                 -> error "TODO RGS: Arrays"
-    MS.SetupElem _ _ _                -> error "TODO RGS: Elems"
-    MS.SetupField _ _ _               -> error "TODO RGS: Fields"
+    MS.SetupStruct _ _ _              -> panic "resolveSetupValue" ["structs not yet implemented"]
+    MS.SetupArray _ _                 -> panic "resolveSetupValue" ["arrays not yet implemented"]
+    MS.SetupElem _ _ _                -> panic "resolveSetupValue" ["elems not yet implemented"]
+    MS.SetupField _ _ _               -> panic "resolveSetupValue" ["fields not yet implemented"]
     MS.SetupCast empty _ _            -> absurd empty
     MS.SetupUnion empty _ _           -> absurd empty
     MS.SetupGlobalInitializer empty _ -> absurd empty
@@ -257,7 +257,7 @@ resolveSAWTerm mcc tp tm =
       if null vals
         then pure $ MIRVal (UnitShape (Mir.TyTuple [])) ()
         else do
-          error "TODO RGS: Finish me"
+          panic "resolveSAWTerm" ["tuples not yet implemented"]
           {-
           mirTys <- traverse (tyToShape col) tps
           pure $ MIRVal (StructShape M.Adt
@@ -361,34 +361,4 @@ equalValsPred ::
   MIRVal ->
   MIRVal ->
   IO (W4.Pred Sym)
-equalValsPred = error "TODO RGS: equalValsPred"
-{-
-equalValsPred cc (MIRVal shp1' v1') (MIRVal shp2' v2') =
-  go shp1' shp2' v1' v2'
-  where
-    sym = cc^.mccSym
-
-    go :: TypeShape tp1 -> TypeShape tp2
-       -> Crucible.RegValue Sym tp1 -> Crucible.RegValue Sym tp2
-       -> IO (W4.Pred Sym)
-    go shp1 shp2 v1 v2 =
-      case testEquality shp1 shp2 of
-        Just Refl ->
-          case shp1 of
-            UnitShape{} ->
-              pure (W4.truePred sym)
-            PrimShape{} ->
-              W4.isEq sym v1 v2
-            -- TupleShape{}
-            -- ArrayShape{}
-            -- FnPtrShape{}
-        Nothing ->
-          pure (W4.falsePred sym)
-
-    andAlso :: Bool -> IO (W4.Pred Sym) -> IO (W4.Pred Sym)
-    andAlso b x = if b then x else pure (W4.falsePred sym)
-
-    -- allEqual shp1 shp2 vs1 vs2 =
-    --   foldM (\x y -> andPred sym <$> x <*> y) (truePred sym) =<<
-    --     V.zipWithM (go shp1 shp2) vs1 vs2
--}
+equalValsPred = panic "equalValsPred" ["not yet implemented"]

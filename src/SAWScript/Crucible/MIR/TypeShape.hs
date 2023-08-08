@@ -5,9 +5,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
-{-# OPTIONS_GHC -Wno-name-shadowing #-} -- TODO RGS: Ugh. Remove this.
 
--- | TODO RGS: Docs
+-- | The 'TypeShape' data type and related utilities.
 module SAWScript.Crucible.MIR.TypeShape
   ( TypeShape(..)
   , FieldShape(..)
@@ -148,7 +147,7 @@ instance TestEquality FieldShape where
 -- It is guaranteed that the `tp :: CrucibleType` index of the resulting
 -- `TypeShape` matches that returned by `tyToRepr`.
 tyToShape :: M.Collection -> M.Ty -> Some TypeShape
-tyToShape col ty = go ty
+tyToShape col = go
   where
     go :: M.Ty -> Some TypeShape
     go ty = case ty of
@@ -186,14 +185,14 @@ tyToShape col ty = go ty
       where
         loop :: forall ctx. [M.Ty] -> Assignment FieldShape ctx -> Some (Assignment FieldShape)
         loop [] flds = Some flds
-        loop (ty:tys) flds | Some fld <- go ty = loop tys (flds :> OptField fld)
+        loop (ty':tys') flds | Some fld <- go ty' = loop tys' (flds :> OptField fld)
 
     goStruct :: M.Ty -> [M.Ty] -> Some TypeShape
     goStruct ty tys | Some flds <- loop tys Empty = Some $ StructShape ty tys flds
       where
         loop :: forall ctx. [M.Ty] -> Assignment FieldShape ctx -> Some (Assignment FieldShape)
         loop [] flds = Some flds
-        loop (ty:tys) flds | Some fld <- goField ty = loop tys (flds :> fld)
+        loop (ty':tys') flds | Some fld <- goField ty' = loop tys' (flds :> fld)
 
     goField :: M.Ty -> Some FieldShape
     goField ty | Some shp <- go ty = case canInitialize col ty of
@@ -244,7 +243,7 @@ tyToShapeEq col ty tpr | Some shp <- tyToShape col ty =
             " (got " ++ show (shapeType shp) ++ " instead)"
 
 shapeType :: TypeShape tp -> TypeRepr tp
-shapeType shp = go shp
+shapeType = go
   where
     go :: forall tp. TypeShape tp -> TypeRepr tp
     go (UnitShape _) = UnitRepr

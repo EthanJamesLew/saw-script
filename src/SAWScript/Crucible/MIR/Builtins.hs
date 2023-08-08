@@ -133,42 +133,29 @@ ppMIRAbortedResult _cc = ppAbortedResult (\_gp -> mempty)
 -- Commands
 -----
 
--- | TODO RGS: Docs
 mir_alloc :: Mir.Ty -> MIRSetupM SetupValue
 mir_alloc = mir_alloc_internal Mir.Immut
 
--- | TODO RGS: Docs
 mir_alloc_mut :: Mir.Ty -> MIRSetupM SetupValue
 mir_alloc_mut = mir_alloc_internal Mir.Mut
 
--- | TODO RGS: Docs
+-- | The workhorse for 'mir_alloc' and 'mir_alloc_mut'.
 mir_alloc_internal :: Mir.Mutability -> Mir.Ty -> MIRSetupM SetupValue
 mir_alloc_internal mut mty =
   MIRSetupM $
   do st <- get
      let mcc = st ^. Setup.csCrucibleContext
      let col = mcc ^. mccRustModule ^. Mir.rmCS ^. Mir.collection
-     {-
-     loc <- SS.toW4Loc "mir_alloc" <$> lift (lift getPosition)
-     tags <- view Setup.croTags
-     let md = MS.ConditionMetadata
-              { MS.conditionLoc = loc
-              , MS.conditionTags = tags
-              , MS.conditionType = "fresh allocation"
-              , MS.conditionContext = ""
-              }
-     -}
      Some tpr <- pure $ Mir.tyToRepr col mty
      n <- Setup.csVarCounter <<%= MS.nextAllocIndex
      Setup.currentState . MS.csAllocs . at n ?=
        Some (MirAllocSpec { _maType = tpr
                           , _maMutbl = mut
                           , _maMirType = mty
-                          , _maLen = 1 -- TODO RGS: Is this right?
+                          , _maLen = 1
                           })
      return (MS.SetupVar n)
 
--- | TODO RGS: Docs
 mir_execute_func :: [SetupValue] -> MIRSetupM ()
 mir_execute_func args =
   MIRSetupM $
@@ -181,9 +168,7 @@ mir_execute_func args =
      let
        checkArg i expectedTy val =
          do valTy <- typeOfSetupValue cc env nameEnv val
-            -- TODO RGS: Consider using a coarser-grained equality test
-            -- than this
-            unless (expectedTy == valTy) $
+            unless (checkEqualTys expectedTy valTy) $
               X.throwM (MIRArgTypeMismatch i expectedTy valTy)
      let
        checkArgs _ [] [] = pure ()
@@ -226,7 +211,6 @@ mir_load_module inputFile = do
    col <- io $ Mir.parseMIR inputFile b
    io $ Mir.translateMIR mempty col halloc
 
--- | TODO RGS: Docs
 mir_return :: SetupValue -> MIRSetupM ()
 mir_return retVal =
   MIRSetupM $
@@ -240,9 +224,7 @@ mir_return retVal =
        Nothing ->
          X.throwM (MIRReturnUnexpected valTy)
        Just retTy ->
-         -- TODO RGS: Consider using a coarser-grained equality test
-         -- than this
-         unless (retTy == valTy) $
+         unless (checkEqualTys retTy valTy) $
          X.throwM (MIRReturnTypeMismatch retTy valTy)
      Setup.crucible_return retVal
 
@@ -497,9 +479,7 @@ resolveArguments cc mspec env = mapM resolveArg [0..(nArgs-1)]
     nm = mspec ^. MS.csMethod
 
     checkArgTy i mt mt' =
-      -- TODO RGS: Consider using a coarser-grained equality test
-      -- than this
-      unless (mt == mt') $
+      unless (checkEqualTys mt mt') $
            fail $ unlines [ "Type mismatch in argument " ++ show i ++ " when verifying " ++ show nm
                           , "Argument is declared with type: " ++ show mt
                           , "but provided argument has incompatible type: " ++ show mt'
@@ -532,7 +512,6 @@ setupPrePointsTos _mspec _cc _env pts mem0 = foldM doPointsTo mem0 pts
       panic "setupPrePointsTo" ["not yet implemented"]
 
 -- | Collects boolean terms that should be assumed to be true.
--- TODO RGS: This seems copy-pasted, deduplicate?
 setupPrestateConditions ::
   MethodSpec ->
   MIRCrucibleContext ->
@@ -752,9 +731,7 @@ verifyPrestate cc mspec globals0 =
               ]
        (Just sv, Just retTy) ->
          do retTy' <- typeOfSetupValue cc tyenv nameEnv sv
-            -- TODO RGS: Consider using a coarser-grained equality test
-            -- than this
-            unless (retTy == retTy') $
+            unless (checkEqualTys retTy retTy') $
               fail $ unlines
               [ "Incompatible types for return value when verifying " ++ methodStr
               , "Expected: " ++ show retTy
@@ -891,6 +868,14 @@ verifySimulate opts cc pfs mspec args assumes top_loc lemmas globals _checkSat m
 -- Utilities
 --------------------------------------------------------------------------------
 
+-- | Check if two 'Mir.Ty's are equal. For now, we simply use their 'Eq'
+-- instance, but we may want to have a more coarse-grained notion of equality in
+-- the future (see, for instance, @checkRegisterCompatibility@ in
+-- "SAWScript.Crucible.LLVM.Builtins" and @registerCompatible@ in
+-- "SAWScript.Crucible.JVM.Builtins").
+checkEqualTys :: Mir.Ty -> Mir.Ty -> Bool
+checkEqualTys = (==)
+
 -- | Returns the Cryptol type of a MIR type, returning 'Nothing' if it is not
 -- easily expressible in Cryptol's type system or if it is not currently
 -- supported.
@@ -938,7 +923,6 @@ setupCrucibleContext rm =
      sym <- io $ newSAWCoreExprBuilder sc
      bak <- io $ newSAWCoreBackend pathSatSolver sym
      opts <- getOptions
-     -- TODO RGS: Sigh, this is copy-pasted. File an issue about this.
      io $ do let cfg = W4.getConfiguration sym
              verbSetting <- W4.getOptionSetting W4.verbosity cfg
              _ <- W4.setOpt verbSetting $ toInteger $ simVerbose opts

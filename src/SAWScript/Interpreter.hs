@@ -3854,8 +3854,6 @@ primitives = Map.fromList
     , "verification conditions."
     ]
 
-  -- TODO RGS: Other types go here
-
   , prim "mir_array" "Int -> MIRType -> MIRType"
     (pureVal mir_array)
     Experimental

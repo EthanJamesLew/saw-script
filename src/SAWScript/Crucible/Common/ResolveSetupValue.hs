@@ -1,4 +1,5 @@
--- | TODO RGS: Docs
+-- | Utilities for resolving 'SetupValue's that are used across language
+-- backends.
 module SAWScript.Crucible.Common.ResolveSetupValue
   ( resolveBoolTerm
   ) where
@@ -14,7 +15,7 @@ import Verifier.SAW.Simulator.What4.ReturnTrip
 
 import SAWScript.Crucible.Common
 
--- | TODO RGS: Docs
+-- | Resolve a SAWCore 'Term' into a What4 'W4.Pred'.
 resolveBoolTerm :: Sym -> Term -> IO (W4.Pred Sym)
 resolveBoolTerm sym tm =
   do st <- sawCoreState sym

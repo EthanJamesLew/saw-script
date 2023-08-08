@@ -7,7 +7,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 
--- | TODO RGS: Docs
+-- | Turns 'SetupValue's back into 'MIRVal's.
 module SAWScript.Crucible.MIR.ResolveSetupValue
   ( MIRVal(..)
   , resolveSetupVal
@@ -60,7 +60,9 @@ import SAWScript.Crucible.MIR.MethodSpecIR
 import SAWScript.Crucible.MIR.TypeShape
 import SAWScript.Panic
 
--- | TODO RGS: Docs
+-- | A pair of a simulation-time MIR value ('RegValue') and its corresponding
+-- type ('TypeShape'), where the @tp@ type parameter is closed over
+-- existentially. SAW's MIR backend passes around 'MIRVal's at simulation time.
 data MIRVal where
   MIRVal :: TypeShape tp -> RegValue Sym tp -> MIRVal
 
@@ -240,7 +242,8 @@ resolveSAWTerm mcc tp tm =
                           Just r -> pure r
                           Nothing -> fail $ unlines
                             [ "resolveSAWTerm: internal error"
-                            -- TODO RGS: Print shapes
+                            , show shp
+                            , show shp'
                             ]
                 pure val
 
@@ -343,7 +346,7 @@ toMIRType tp =
     Cryptol.TVAbstract _ _ -> Left (Impossible "abstract")
     Cryptol.TVNewtype{} -> Left (Impossible "newtype")
 
--- | TODO RGS: Docs
+-- | Check if two MIR references are equal.
 equalRefsPred ::
   MIRCrucibleContext ->
   MirPointer Sym tp1 ->

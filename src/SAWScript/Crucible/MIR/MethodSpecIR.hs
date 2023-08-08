@@ -5,7 +5,8 @@
 {-# Language TypeFamilies #-}
 {-# OPTIONS_GHC -fno-warn-orphans  #-}
 
--- | TODO RGS: Docs
+-- | Provides type-checked representations for Rust/MIR function specifications
+-- and functions for creating them from ASTs.
 module SAWScript.Crucible.MIR.MethodSpecIR
   ( -- * @MIRCrucibleContext@
     MIRCrucibleContext(..)

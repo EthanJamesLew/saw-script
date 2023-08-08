@@ -72,8 +72,6 @@ data SomeOnlineBackend =
 
 data SAWCruciblePersonality sym = SAWCruciblePersonality
 
--- TODO RGS: Why is this in IO? Actually, why does this function even exist?
--- It's such a simple wrapper around W4.userState... why not just use that?
 sawCoreState :: Sym -> IO (SAWCoreState Nonce.GlobalNonceGenerator)
 sawCoreState sym = pure (sym ^. W4.userState)
 

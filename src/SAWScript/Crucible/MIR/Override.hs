@@ -2,7 +2,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE TypeApplications #-}
 
--- | TODO RGS: Docs
+-- | Override matching and application for MIR.
 module SAWScript.Crucible.MIR.Override
   ( OverrideMatcher
   , OverrideMatcher'(..)
@@ -19,7 +19,6 @@ module SAWScript.Crucible.MIR.Override
 
 import qualified Control.Exception as X
 import Control.Lens
-import Control.Monad (unless)
 import Control.Monad.IO.Class (MonadIO(..))
 import Data.Foldable (for_, traverse_)
 import Data.List (tails)
@@ -113,25 +112,6 @@ decodeMIRVal col ty (Crucible.AnyValue repr rv)
       Just Refl -> Just (MIRVal shp rv)
       Nothing   -> Nothing
 
--- | Verify that all of the fresh variables for the given
--- state spec have been "learned". If not, throws
--- 'AmbiguousVars' exception.
---
--- TODO RGS: This is copy-pasted among all the backends. Factor out.
-enforceCompleteSubstitution :: W4.ProgramLoc -> StateSpec -> OverrideMatcher MIR w ()
-enforceCompleteSubstitution loc ss =
-
-  do sub <- OM (use termSub)
-
-     let -- predicate matches terms that are not covered by the computed
-         -- term substitution
-         isMissing tt = ecVarIndex (tecExt tt) `Map.notMember` sub
-
-         -- list of all terms not covered by substitution
-         missing = filter isMissing (view MS.csFreshVars ss)
-
-     unless (null missing) (failure loc (AmbiguousVars missing))
-
 -- | Generate assertions that all of the memory allocations matched by
 -- an override's precondition are disjoint.
 enforceDisjointness ::
@@ -169,8 +149,6 @@ instantiateExtResolveSAWPred sc cc cond = do
 
 -- | Map the given substitution over all 'SetupTerm' constructors in
 -- the given 'SetupValue'.
---
--- TODO RGS: This might be copypasta
 instantiateSetupValue ::
   SharedContext     ->
   Map VarIndex Term ->
@@ -225,7 +203,7 @@ learnEqual opts sc cc spec md prepost v1 v2 =
   do val1 <- resolveSetupValueMIR opts cc sc spec v1
      val2 <- resolveSetupValueMIR opts cc sc spec v2
      p <- liftIO (equalValsPred cc val1 val2)
-     let name = "equality " ++ stateCond prepost
+     let name = "equality " ++ MS.stateCond prepost
      let loc = MS.conditionLoc md
      addAssert p md (Crucible.SimError loc (Crucible.AssertFailureSimError name ""))
 
@@ -257,7 +235,7 @@ learnPred sc cc md prepost t =
      u <- liftIO $ scInstantiateExt sc s t
      p <- liftIO $ resolveBoolTerm (cc ^. mccSym) u
      let loc = MS.conditionLoc md
-     addAssert p md (Crucible.SimError loc (Crucible.AssertFailureSimError (stateCond prepost) ""))
+     addAssert p md (Crucible.SimError loc (Crucible.AssertFailureSimError (MS.stateCond prepost) ""))
 
 -- | Use the current state to learn about variable assignments based on
 -- preconditions for a procedure specification.
@@ -376,7 +354,7 @@ matchTerm sc cc md prepost real expect =
        _ ->
          do t <- liftIO $ scEq sc real expect
             let msg = unlines $
-                  [ "Literal equality " ++ stateCond prepost
+                  [ "Literal equality " ++ MS.stateCond prepost
 --                  , "Expected term: " ++ prettyTerm expect
 --                  , "Actual term:   " ++ prettyTerm real
                   ]
@@ -416,11 +394,6 @@ resolveSetupValueMIR opts cc sc spec sval =
      sval' <- liftIO $ instantiateSetupValue sc s sval
      liftIO $ resolveSetupVal cc m tyenv nameEnv sval' `X.catch` handleException opts
 
--- | TODO RGS: This is definitely copypasta
-stateCond :: MS.PrePost -> String
-stateCond MS.PreState = "precondition"
-stateCond MS.PostState = "postcondition"
-
 typeOfSetupValueMIR ::
   MIRCrucibleContext   ->
   CrucibleMethodSpecIR ->
@@ -431,7 +404,6 @@ typeOfSetupValueMIR cc spec sval =
          nameEnv = MS.csTypeNames spec
      liftIO $ typeOfSetupValue cc tyenv nameEnv sval
 
--- | TODO RGS: Finish me
 valueToSC ::
   Sym ->
   MS.ConditionMetadata ->

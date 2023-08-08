@@ -1997,9 +1997,34 @@ mir_verify :
   TopLevel MIRSpec
 ~~~~
 
-Note that `mir_verify` requires `enable_experimental` in order to be used.
-Moreover, some parts of `mir_verify` are not currently implemented, so it is
-possible that using `mir_verify` on some programs will fail.
+### Running a MIR-based verification
+
+`mir_verify` requires `enable_experimental` in order to be used.  Moreover,
+some parts of `mir_verify` are not currently implemented, so it is possible
+that using `mir_verify` on some programs will fail.
+
+The function name `String` supplied as an argument to `mir_verify` is expected
+to adhere to one of the following conventions:
+
+* `<crate name>/<disambiguator>::<function name>`
+* `<crate name>::<function name>`
+
+Where:
+
+* `<crate name>` is the name of the crate in which the function is defined. (If
+  you produced your MIR JSON file by compiling a single `.rs` file with
+  `saw-rustc`, then the crate name is the same as the name of the file, but
+  without the `.rs` file extension.)
+* `<disambiguator>` is a hash of the crate and its dependencies. In extreme
+  cases, it is possible for two different crates to have identical crate names,
+  in which case the disambiguator must be used to distinguish between the two
+  crates. In the common case, however, most crate names will correspond to
+  exactly one disambiguator, and you are allowed to leave out the
+  `/<disambiguator>` part of the `String` in this case.
+* `<function name>` is the name of the function itself.
+  TODO RGS: Describe conventions here
+
+-----
 
 Now we describe how to construct a value of type `LLVMSetup ()`, `JVMSetup ()`,
 or `MIRSetup ()`.

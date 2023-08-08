@@ -84,8 +84,7 @@ library
                    SAWServer.LLVMCrucibleSetup,
                    SAWServer.LLVMVerify,
                    SAWServer.MIRCrucibleSetup,
-                   -- TODO RGS: Do this
-                   -- SAWServer.MIRVerify,
+                   SAWServer.MIRVerify,
                    SAWServer.NoParams,
                    SAWServer.OK,
                    SAWServer.ProofScript,

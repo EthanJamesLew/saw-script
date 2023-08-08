@@ -28,6 +28,7 @@ import Data.Map (Map)
 import Data.Parameterized.Some (Some(..))
 import qualified Data.Set as Set
 import Data.Void (absurd)
+import qualified Prettyprinter as PP
 
 import qualified Cryptol.TypeCheck.AST as Cryptol
 import qualified Cryptol.Eval.Type as Cryptol (TValue(..), evalType)
@@ -392,12 +393,11 @@ mkStructuralMismatch ::
   SetupValue {- ^ the value from the spec -} ->
   Mir.Ty     {- ^ the expected type -} ->
   OverrideMatcher MIR w (OverrideFailureReason MIR)
-mkStructuralMismatch opts cc sc spec mirval setupval mty = do
+mkStructuralMismatch _opts cc _sc spec (MIRVal shp _) setupval mty = do
   setupTy <- typeOfSetupValueMIR cc spec setupval
-  setupJVal <- resolveSetupValueMIR opts cc sc spec setupval
   pure $ StructuralMismatch
-            ({-_ppJVMVal-} error "TODO RGS: mkStructuralMismatch" mirval)
-            ({-_ppJVMVal-} error "TODO RGS: mkStructuralMismatch" setupJVal)
+            (PP.pretty shp) -- TODO: Print the entire value, not just the type shape
+            (MS.ppSetupValue setupval)
             (Just setupTy)
             mty
 

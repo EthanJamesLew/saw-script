@@ -3,6 +3,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-} -- TODO RGS: Ugh. Remove this.
 
@@ -20,10 +21,12 @@ module SAWScript.Crucible.MIR.TypeShape
 
 import Control.Lens ((^.), (^..), each)
 import qualified Data.Map as Map
+import Data.Parameterized.Classes (ShowF)
 import Data.Parameterized.Context (pattern Empty, pattern (:>), Assignment)
 import Data.Parameterized.Some
 import Data.Parameterized.TraversableFC
 import GHC.Stack (HasCallStack)
+import qualified Prettyprinter as PP
 
 import Lang.Crucible.Types
 
@@ -32,7 +35,6 @@ import qualified Mir.Mir as M
 import Mir.TransTy ( tyListToCtx, tyToRepr, tyToReprCont, canInitialize
                    , isUnsized, reprTransparentFieldTy )
 
--- TODO RGS: Consolidate with SAWScript.Crucible.MIR.TypeShape
 -- | TypeShape is used to classify MIR `Ty`s and their corresponding
 -- CrucibleTypes into a few common cases.  We don't use `Ty` directly because
 -- there are some `Ty`s that have identical structure (such as TyRef vs.
@@ -69,6 +71,13 @@ data TypeShape (tp :: CrucibleType) where
     -- inside them.
     FnPtrShape :: M.Ty -> CtxRepr args -> TypeRepr ret
                -> TypeShape (FunctionHandleType args ret)
+
+-- TODO: Improve?
+instance PP.Pretty (TypeShape tp) where
+  pretty = PP.viaShow
+
+deriving instance Show (TypeShape tp)
+instance ShowF TypeShape
 
 instance TestEquality TypeShape where
   testEquality (UnitShape ty1) (UnitShape ty2)
@@ -116,6 +125,13 @@ instance TestEquality TypeShape where
 data FieldShape (tp :: CrucibleType) where
     OptField :: TypeShape tp -> FieldShape (MaybeType tp)
     ReqField :: TypeShape tp -> FieldShape tp
+
+-- TODO: Improve?
+instance PP.Pretty (FieldShape tp) where
+  pretty = PP.viaShow
+
+deriving instance Show (FieldShape tp)
+instance ShowF FieldShape
 
 instance TestEquality FieldShape where
   testEquality (OptField tpr1) (OptField tpr2)

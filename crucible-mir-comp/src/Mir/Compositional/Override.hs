@@ -54,6 +54,7 @@ import qualified Verifier.SAW.TypedTerm as SAW
 import qualified SAWScript.Crucible.Common.MethodSpec as MS
 import qualified SAWScript.Crucible.Common.Override as MS
 import SAWScript.Crucible.MIR.MethodSpecIR
+import SAWScript.Crucible.MIR.TypeShape
 
 import Mir.Generator
 import Mir.Intrinsics hiding (MethodSpec)

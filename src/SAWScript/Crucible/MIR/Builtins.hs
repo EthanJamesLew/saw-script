@@ -202,7 +202,7 @@ mir_load_module inputFile = do
 
    opts <- getOptions
    let ?debug = simVerbose opts
-   -- TODO RGS: For now, we use the same default settings for implicit parameters as in
+   -- For now, we use the same default settings for implicit parameters as in
    -- crux-mir. We may want to add options later that allow configuring these.
    let ?assertFalseOnError = True
    let ?printCrucible = False
@@ -279,8 +279,7 @@ mir_verify rm nm lemmas checkSat setup tactic =
      let cs = rm ^. Mir.rmCS
          col = cs ^. Mir.collection
          crateDisambigs = cs ^. Mir.crateHashesMap
-         explodedNm = Text.splitOn "::" (Text.pack nm)
-     did <- findDefId crateDisambigs explodedNm
+     did <- findDefId crateDisambigs (Text.pack nm)
      -- TODO RGS: Factor out CFG lookup logic into its own function
      fn <- case Map.lookup did (col ^. Mir.functions) of
          Just x -> return x
@@ -328,26 +327,6 @@ mir_verify rm nm lemmas checkSat setup tactic =
      let diff = diffUTCTime end start
      ps <- io (MS.mkProvedSpec MS.SpecProved methodSpec stats vcstats lemmaSet diff)
      returnProof ps
-  where
-    -- TODO RGS: Put this into crucible-mir
-    findDefId :: Map Text (NonEmpty Text) -> Mir.ExplodedDefId -> TopLevel Mir.DefId
-    findDefId crateDisambigs edid = do
-        (crate, path) <-
-          case edid of
-            crate:path -> pure (crate, path)
-            [] -> fail "findDefId: DefId with no crate"
-        let crateStr = Text.unpack crate
-        case Map.lookup crate crateDisambigs of
-            Just allDisambigs@(disambig :| otherDisambigs)
-              |  F.null otherDisambigs
-              -> pure $ Mir.textId $ Text.intercalate "::"
-                      $ (crate <> "/" <> disambig) : path
-              |  otherwise
-              -> fail $ unlines $
-                   [ "ambiguous crate " ++ crateStr
-                   , "crate disambiguators:"
-                   ] ++ F.toList (Text.unpack <$> allDisambigs)
-            Nothing -> fail $ "unknown crate " ++ crateStr
 
 -----
 -- Mir.Types
@@ -442,14 +421,11 @@ registerOverride ::
   IORef MetadataMap {- ^ metadata map -} ->
   [MethodSpec] ->
   Crucible.OverrideSim (SAWCruciblePersonality Sym) Sym MIR rtp args ret ()
-registerOverride opts cc _ctx top_loc mdMap cs =
-  do let sym = cc^.mccSym
-     let c0 = head cs
+registerOverride _opts cc _ctx _top_loc _mdMap cs =
+  do let c0 = head cs
      let method = c0 ^. MS.csMethod
      let rm = cc^.mccRustModule
      let cfgMap = rm ^. Mir.rmCFGs
-
-     sc <- saw_ctx <$> liftIO (sawCoreState sym)
 
      -- TODO RGS: Factor out CFG lookup logic into its own function
      Crucible.AnyCFG cfg <- case Map.lookup (Mir.idText method) cfgMap of
@@ -463,8 +439,7 @@ registerOverride opts cc _ctx top_loc mdMap cs =
        $ Crucible.mkOverride'
            (Crucible.handleName h)
            retTy
-           ({-methodSpecHandler-}
-            panic "registerOverride" ["not yet implemented"] opts sc cc top_loc mdMap cs h)
+           (panic "registerOverride.methodSpecHandler" ["not yet implemented"])
 
 resolveArguments ::
   MIRCrucibleContext ->
@@ -538,7 +513,6 @@ setupPrestateConditions mspec cc env = aux []
 
     aux _ (MS.SetupCond_Ghost empty_ _ _ _ : _) = absurd empty_
 
--- | TODO RGS: I think most of this is copy-pasted
 verifyObligations ::
   MIRCrucibleContext ->
   MethodSpec ->
@@ -597,7 +571,6 @@ verifyObligations cc mspec tactic assumes asserts =
      let vcstats = map snd outs
      return (stats, vcstats)
 
--- TODO RGS: This seems heavily copy-pasted in both LLVM and JVM
 verifyPoststate ::
   MIRCrucibleContext                        {- ^ crucible context        -} ->
   MethodSpec                                {- ^ specification           -} ->
@@ -771,7 +744,7 @@ verifySimulate opts cc pfs mspec args assumes top_loc lemmas globals _checkSat m
 
      -- Translate the static initializer function
      let ?debug = simVerbose opts
-     -- TODO RGS: For now, we use the same default settings for implicit parameters as in
+     -- For now, we use the same default settings for implicit parameters as in
      -- crux-mir. We may want to add options later that allow configuring these.
      let ?assertFalseOnError = True
      let ?customOps          = customOps
@@ -914,6 +887,46 @@ cryptolTypeOfActual mty =
     baseSizeType Mir.B64   = Just $ Cryptol.tWord $ Cryptol.tNum (64 :: Integer)
     baseSizeType Mir.B128  = Just $ Cryptol.tWord $ Cryptol.tNum (128 :: Integer)
     baseSizeType Mir.USize = Just $ Cryptol.tWord $ Cryptol.tNum $ natValue $ knownNat @Mir.SizeBits
+
+-- | Given a function name @fnName@, attempt to look up its corresponding
+-- 'Mir.DefId'. Currently, the following types of function names are permittd:
+--
+-- * @<crate_name>/<disambiguator>::<function_name>: A fully disambiguated name.
+--
+-- * @<crate_name>::<function_name>: A name without a disambiguator. In this
+--   case, SAW will attempt to look up a disambiguator from the @crateDisambigs@
+--   map. If none can be found, or if there are multiple disambiguators for the
+--   given @<crate_name>@, then this will fail.
+findDefId :: Map Text (NonEmpty Text) -> Text -> TopLevel Mir.DefId
+findDefId crateDisambigs fnName = do
+    (crate, path) <-
+      case edid of
+        crate:path -> pure (crate, path)
+        [] -> fail $ unlines
+                [ "The function `" ++ fnNameStr ++ "` lacks a crate."
+                , "Consider providing one, e.g., `<crate_name>::" ++ fnNameStr ++ "`."
+                ]
+    let crateStr = Text.unpack crate
+    case Text.splitOn "/" crate of
+      [crateNoDisambig, disambig] ->
+        pure $ Mir.textId $ Text.intercalate "::"
+             $ (crateNoDisambig <> "/" <> disambig) : path
+      [_] ->
+        case Map.lookup crate crateDisambigs of
+            Just allDisambigs@(disambig :| otherDisambigs)
+              |  F.null otherDisambigs
+              -> pure $ Mir.textId $ Text.intercalate "::"
+                      $ (crate <> "/" <> disambig) : path
+              |  otherwise
+              -> fail $ unlines $
+                   [ "ambiguous crate " ++ crateStr
+                   , "crate disambiguators:"
+                   ] ++ F.toList (Text.unpack <$> allDisambigs)
+            Nothing -> fail $ "unknown crate " ++ crateStr
+      _ -> fail $ "Malformed crate name: " ++ show crateStr
+  where
+    fnNameStr = Text.unpack fnName
+    edid = Text.splitOn "::" fnName
 
 setupCrucibleContext :: Mir.RustModule -> TopLevel MIRCrucibleContext
 setupCrucibleContext rm =

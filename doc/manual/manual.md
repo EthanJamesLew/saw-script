@@ -2003,11 +2003,12 @@ mir_verify :
 some parts of `mir_verify` are not currently implemented, so it is possible
 that using `mir_verify` on some programs will fail.
 
-The function name `String` supplied as an argument to `mir_verify` is expected
-to adhere to one of the following conventions:
+The `String` supplied as an argument to `mir_verify` is expected to be a
+function _identifier_. An identifier is expected adhere to one of the following
+conventions:
 
-* `<crate name>/<disambiguator>::<function name>`
-* `<crate name>::<function name>`
+* `<crate name>/<disambiguator>::<function path>`
+* `<crate name>::<function path>`
 
 Where:
 
@@ -2021,8 +2022,28 @@ Where:
   crates. In the common case, however, most crate names will correspond to
   exactly one disambiguator, and you are allowed to leave out the
   `/<disambiguator>` part of the `String` in this case.
-* `<function name>` is the name of the function itself.
-  TODO RGS: Describe conventions here
+* `<function path>` is the path to the function within the crate. Sometimes,
+  this is as simple as the function name itself. In other cases, a function
+  path may involve multiple _segments_, depending on the module hierarchy for
+  the program being verified. For instance, a `read` function located in
+  `core/src/ptr/mod.rs` will have the identifier:
+
+  ```
+  core::ptr::read
+  ```
+
+  Where `core` is the crate name and `ptr::read` is the function path, which
+  has two segments `ptr` and `read`. There are also some special forms of
+  segments that appear for functions defined in certain language constructs.
+  For instance, if a function is defined in an `impl` block, then it will have
+  `{impl}` as one of its segments, e.g.,
+
+  ```
+  core::ptr::const_ptr::{impl}::offset
+  ```
+
+  If you are in doubt about what the full identifier for a given fuction is,
+  consult the MIR JSON file for your program.
 
 -----
 

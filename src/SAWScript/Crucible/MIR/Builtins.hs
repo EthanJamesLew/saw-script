@@ -168,7 +168,7 @@ mir_execute_func args =
      let
        checkArg i expectedTy val =
          do valTy <- typeOfSetupValue cc env nameEnv val
-            unless (checkEqualTys expectedTy valTy) $
+            unless (checkCompatibleTys expectedTy valTy) $
               X.throwM (MIRArgTypeMismatch i expectedTy valTy)
      let
        checkArgs _ [] [] = pure ()
@@ -224,7 +224,7 @@ mir_return retVal =
        Nothing ->
          X.throwM (MIRReturnUnexpected valTy)
        Just retTy ->
-         unless (checkEqualTys retTy valTy) $
+         unless (checkCompatibleTys retTy valTy) $
          X.throwM (MIRReturnTypeMismatch retTy valTy)
      Setup.crucible_return retVal
 
@@ -449,7 +449,7 @@ resolveArguments cc mspec env = mapM resolveArg [0..(nArgs-1)]
     nm = mspec ^. MS.csMethod
 
     checkArgTy i mt mt' =
-      unless (checkEqualTys mt mt') $
+      unless (checkCompatibleTys mt mt') $
            fail $ unlines [ "Type mismatch in argument " ++ show i ++ " when verifying " ++ show nm
                           , "Argument is declared with type: " ++ show mt
                           , "but provided argument has incompatible type: " ++ show mt'
@@ -699,7 +699,7 @@ verifyPrestate cc mspec globals0 =
               ]
        (Just sv, Just retTy) ->
          do retTy' <- typeOfSetupValue cc tyenv nameEnv sv
-            unless (checkEqualTys retTy retTy') $
+            unless (checkCompatibleTys retTy retTy') $
               fail $ unlines
               [ "Incompatible types for return value when verifying " ++ methodStr
               , "Expected: " ++ show retTy
@@ -833,13 +833,121 @@ verifySimulate opts cc pfs mspec args assumes top_loc lemmas globals _checkSat m
 -- Utilities
 --------------------------------------------------------------------------------
 
--- | Check if two 'Mir.Ty's are equal. For now, we simply use their 'Eq'
--- instance, but we may want to have a more coarse-grained notion of equality in
--- the future (see, for instance, @checkRegisterCompatibility@ in
--- "SAWScript.Crucible.LLVM.Builtins" and @registerCompatible@ in
--- "SAWScript.Crucible.JVM.Builtins").
-checkEqualTys :: Mir.Ty -> Mir.Ty -> Bool
-checkEqualTys = (==)
+-- | Check if two 'Mir.Ty's are compatible in SAW. This is a slightly coarser
+-- notion of equality to reflect the fact that MIR's type system is richer than
+-- Cryptol's type system, and some types which would be distinct in MIR are in
+-- fact equal when converted to the equivalent Cryptol types. In particular:
+--
+-- 1. A @u<N>@ type is always compatible with an @i<N>@ type. For instance, @u8@
+--    is compatible with @i8@, @u16@ is compatible with @i16@, and @usize@ is
+--    compatible with @isize@. Note that the bit sizes of both types must be the
+--    same. For instance, @u8@ is /not/ compatible with @i16@.
+--
+-- 2. Compatibility applies recursively. For instance, @[ty_1; N]@ is compatible
+--    with @[ty_2; N]@ iff @ty_1@ and @ty_2@ are compatibile. Similarly, a tuple
+--    typle @(ty_1_a, ..., ty_n_a)@ is compatible with @(ty_1_b, ..., ty_n_b)@
+--    iff @ty_1_a@ is compatible with @ty_1_b@, ..., and @ty_n_a@ is compatible
+--    with @ty_n_b@.
+--
+-- See also @checkRegisterCompatibility@ in "SAWScript.Crucible.LLVM.Builtins"
+-- and @registerCompatible@ in "SAWScript.Crucible.JVM.Builtins", which fill a
+-- similar niche in the LLVM and JVM backends, respectively.
+checkCompatibleTys :: Mir.Ty -> Mir.Ty -> Bool
+checkCompatibleTys ty1 ty2 = tyView ty1 == tyView ty2
+
+-- | Like 'Mir.Ty', but where the 'TyInt' and 'TyUint' constructors have been
+-- collapsed into a single 'TyViewInt' constructor. This provides a coarser
+-- notion of equality than what the 'Eq' instance for 'Mir.Ty' provides, which
+-- distinguishes the two sorts of integer types.
+--
+-- This is an internal data type that is used to power the 'checkCompatibleTys'
+-- function. Refer to the Haddocks for that function for more information on why
+-- this is needed.
+data TyView
+  = TyViewBool
+  | TyViewChar
+    -- | The sole integer type. Both 'TyInt' and 'TyUint' are mapped to
+    -- 'TyViewInt'.
+  | TyViewInt !Mir.BaseSize
+  | TyViewTuple ![TyView]
+  | TyViewSlice !TyView
+  | TyViewArray !TyView !Int
+  | TyViewRef !TyView !Mir.Mutability
+  | TyViewAdt !Mir.DefId !Mir.DefId !SubstsView
+  | TyViewFnDef !Mir.DefId
+  | TyViewClosure [TyView]
+  | TyViewStr
+  | TyViewFnPtr !FnSigView
+  | TyViewDynamic !Mir.TraitName
+  | TyViewRawPtr !TyView !Mir.Mutability
+  | TyViewFloat !Mir.FloatKind
+  | TyViewDowncast !TyView !Integer
+  | TyViewNever
+  | TyViewForeign
+  | TyViewLifetime
+  | TyViewConst
+  | TyViewErased
+  | TyViewInterned Mir.TyName
+  deriving Eq
+
+-- | Like 'Mir.Substs', but using 'TyView's instead of 'Mir.Ty'.
+--
+-- This is an internal data type that is used to power the 'checkCompatibleTys'
+-- function. Refer to the Haddocks for that function for more information on why
+-- this is needed.
+newtype SubstsView = SubstsView [TyView]
+  deriving Eq
+
+-- | Like 'Mir.FnSig', but using 'TyView's instead of 'Mir.Ty'.
+--
+-- This is an internal data type that is used to power the 'checkCompatibleTys'
+-- function. Refer to the Haddocks for that function for more information on why
+-- this is needed.
+data FnSigView = FnSigView {
+    _fsvarg_tys    :: ![TyView]
+  , _fsvreturn_ty  :: !TyView
+  , _fsvabi        :: Mir.Abi
+  , _fsvspreadarg  :: Maybe Int
+  }
+  deriving Eq
+
+-- | Convert a 'Mir.Ty' value to a 'TyView' value.
+tyView :: Mir.Ty -> TyView
+-- The two most important cases. Both sorts of integers are mapped to TyViewInt.
+tyView (Mir.TyInt  bs) = TyViewInt bs
+tyView (Mir.TyUint bs) = TyViewInt bs
+-- All other cases are straightforward.
+tyView Mir.TyBool = TyViewBool
+tyView Mir.TyChar = TyViewChar
+tyView (Mir.TyTuple tys) = TyViewTuple (map tyView tys)
+tyView (Mir.TySlice ty) = TyViewSlice (tyView ty)
+tyView (Mir.TyArray ty n) = TyViewArray (tyView ty) n
+tyView (Mir.TyRef ty mut) = TyViewRef (tyView ty) mut
+tyView (Mir.TyAdt monoDid origDid substs) =
+  TyViewAdt monoDid origDid (substsView substs)
+tyView (Mir.TyFnDef did) = TyViewFnDef did
+tyView (Mir.TyClosure tys) = TyViewClosure (map tyView tys)
+tyView Mir.TyStr = TyViewStr
+tyView (Mir.TyFnPtr sig) = TyViewFnPtr (fnSigView sig)
+tyView (Mir.TyDynamic trait) = TyViewDynamic trait
+tyView (Mir.TyRawPtr ty mut) = TyViewRawPtr (tyView ty) mut
+tyView (Mir.TyFloat fk) = TyViewFloat fk
+tyView (Mir.TyDowncast ty n) = TyViewDowncast (tyView ty) n
+tyView Mir.TyNever = TyViewNever
+tyView Mir.TyForeign = TyViewForeign
+tyView Mir.TyLifetime = TyViewLifetime
+tyView Mir.TyConst = TyViewConst
+tyView Mir.TyErased = TyViewErased
+tyView (Mir.TyInterned nm) = TyViewInterned nm
+
+-- | Convert a 'Mir.Substs' value to a 'SubstsView' value.
+substsView :: Mir.Substs -> SubstsView
+substsView (Mir.Substs tys) = SubstsView (map tyView tys)
+
+-- | Convert a 'Mir.FnSig' value to a 'FnSigView' value.
+fnSigView :: Mir.FnSig -> FnSigView
+fnSigView (Mir.FnSig argTys retTy abi spreadarg) =
+  FnSigView (map tyView argTys) (tyView retTy) abi spreadarg
 
 -- | Returns the Cryptol type of a MIR type, returning 'Nothing' if it is not
 -- easily expressible in Cryptol's type system or if it is not currently

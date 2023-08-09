@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -68,6 +69,7 @@ import Data.Text (Text)
 import Data.Time.Clock (diffUTCTime, getCurrentTime)
 import Data.Type.Equality (TestEquality(..))
 import Data.Void (absurd)
+import Numeric.Natural (Natural)
 import qualified Prettyprinter as PP
 import System.IO (stdout)
 
@@ -839,11 +841,16 @@ verifySimulate opts cc pfs mspec args assumes top_loc lemmas globals _checkSat m
 -- fact equal when converted to the equivalent Cryptol types. In particular:
 --
 -- 1. A @u<N>@ type is always compatible with an @i<N>@ type. For instance, @u8@
---    is compatible with @i8@, @u16@ is compatible with @i16@, and @usize@ is
---    compatible with @isize@. Note that the bit sizes of both types must be the
---    same. For instance, @u8@ is /not/ compatible with @i16@.
+--    is compatible with @i8@, and @u16@ is compatible with @i16@. Note that the
+--    bit sizes of both types must be the same. For instance, @u8@ is /not/
+--    compatible with @i16@.
 --
--- 2. Compatibility applies recursively. For instance, @[ty_1; N]@ is compatible
+-- 2. The @usize@/@isize@ types are always compatible with @u<N>@/@i<N>@, where
+--    @N@ is the number of bits corresponding to the 'Mir.SizeBits' type in
+--    "Mir.Intrinsics". (This is a bit unsavory, as the actual size of
+--    @usize@/@isize@ is platform-dependent, but this is the current approach.)
+--
+-- 3. Compatibility applies recursively. For instance, @[ty_1; N]@ is compatible
 --    with @[ty_2; N]@ iff @ty_1@ and @ty_2@ are compatibile. Similarly, a tuple
 --    typle @(ty_1_a, ..., ty_n_a)@ is compatible with @(ty_1_b, ..., ty_n_b)@
 --    iff @ty_1_a@ is compatible with @ty_1_b@, ..., and @ty_n_a@ is compatible
@@ -855,10 +862,19 @@ verifySimulate opts cc pfs mspec args assumes top_loc lemmas globals _checkSat m
 checkCompatibleTys :: Mir.Ty -> Mir.Ty -> Bool
 checkCompatibleTys ty1 ty2 = tyView ty1 == tyView ty2
 
--- | Like 'Mir.Ty', but where the 'TyInt' and 'TyUint' constructors have been
--- collapsed into a single 'TyViewInt' constructor. This provides a coarser
--- notion of equality than what the 'Eq' instance for 'Mir.Ty' provides, which
--- distinguishes the two sorts of integer types.
+-- | Like 'Mir.Ty', but where:
+--
+-- * The 'TyInt' and 'TyUint' constructors have been collapsed into a single
+--   'TyViewInt' constructor.
+--
+-- * 'TyViewInt' uses 'BaseSizeView' instead of 'Mir.BaseSize'.
+--
+-- * Recursive occurrences of 'Mir.Ty' use 'TyView' instead. This also applies
+--   to fields of type 'SubstsView' and 'FnSigView', which also replace 'Mir.Ty'
+--   with 'TyView' in their definitions.
+--
+-- This provides a coarser notion of equality than what the 'Eq' instance for
+-- 'Mir.Ty' provides, which distinguishes the two sorts of integer types.
 --
 -- This is an internal data type that is used to power the 'checkCompatibleTys'
 -- function. Refer to the Haddocks for that function for more information on why
@@ -867,8 +883,8 @@ data TyView
   = TyViewBool
   | TyViewChar
     -- | The sole integer type. Both 'TyInt' and 'TyUint' are mapped to
-    -- 'TyViewInt'.
-  | TyViewInt !Mir.BaseSize
+    -- 'TyViewInt', and 'BaseSizeView' is used instead of 'Mir.BaseSize'.
+  | TyViewInt !BaseSizeView
   | TyViewTuple ![TyView]
   | TyViewSlice !TyView
   | TyViewArray !TyView !Int
@@ -888,6 +904,19 @@ data TyView
   | TyViewConst
   | TyViewErased
   | TyViewInterned Mir.TyName
+  deriving Eq
+
+-- | Like 'Mir.BaseSize', but without a special case for @usize@/@isize@.
+-- Instead, these are mapped to their actual size, which is determined by the
+-- number of bits in the 'Mir.SizeBits' type in "Mir.Intrinsics". (This is a bit
+-- unsavory, as the actual size of @usize@/@isize@ is platform-dependent, but
+-- this is the current approach.)
+data BaseSizeView
+  = B8View
+  | B16View
+  | B32View
+  | B64View
+  | B128View
   deriving Eq
 
 -- | Like 'Mir.Substs', but using 'TyView's instead of 'Mir.Ty'.
@@ -914,8 +943,8 @@ data FnSigView = FnSigView {
 -- | Convert a 'Mir.Ty' value to a 'TyView' value.
 tyView :: Mir.Ty -> TyView
 -- The two most important cases. Both sorts of integers are mapped to TyViewInt.
-tyView (Mir.TyInt  bs) = TyViewInt bs
-tyView (Mir.TyUint bs) = TyViewInt bs
+tyView (Mir.TyInt  bs) = TyViewInt (baseSizeView bs)
+tyView (Mir.TyUint bs) = TyViewInt (baseSizeView bs)
 -- All other cases are straightforward.
 tyView Mir.TyBool = TyViewBool
 tyView Mir.TyChar = TyViewChar
@@ -939,6 +968,30 @@ tyView Mir.TyLifetime = TyViewLifetime
 tyView Mir.TyConst = TyViewConst
 tyView Mir.TyErased = TyViewErased
 tyView (Mir.TyInterned nm) = TyViewInterned nm
+
+-- | Convert a 'Mir.BaseSize' value to a 'BaseSizeView' value.
+baseSizeView :: Mir.BaseSize -> BaseSizeView
+baseSizeView Mir.B8    = B8View
+baseSizeView Mir.B16   = B16View
+baseSizeView Mir.B32   = B32View
+baseSizeView Mir.B64   = B64View
+baseSizeView Mir.B128  = B128View
+baseSizeView Mir.USize =
+  case Map.lookup (natValue sizeBitsRepr) bitSizesMap of
+    Just bsv -> bsv
+    Nothing ->
+      error $ "Mir.Intrinsics.BaseSize bit size not supported: " ++ show sizeBitsRepr
+  where
+    sizeBitsRepr = knownNat @Mir.SizeBits
+
+    bitSizesMap :: Map Natural BaseSizeView
+    bitSizesMap = Map.fromList
+      [ (natValue (knownNat @8),   B8View)
+      , (natValue (knownNat @16),  B16View)
+      , (natValue (knownNat @32),  B32View)
+      , (natValue (knownNat @64),  B64View)
+      , (natValue (knownNat @128), B128View)
+      ]
 
 -- | Convert a 'Mir.Substs' value to a 'SubstsView' value.
 substsView :: Mir.Substs -> SubstsView

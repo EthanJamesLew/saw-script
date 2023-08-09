@@ -280,10 +280,9 @@ mir_verify rm nm lemmas checkSat setup tactic =
          col = cs ^. Mir.collection
          crateDisambigs = cs ^. Mir.crateHashesMap
      did <- findDefId crateDisambigs (Text.pack nm)
-     -- TODO RGS: Factor out CFG lookup logic into its own function
      fn <- case Map.lookup did (col ^. Mir.functions) of
          Just x -> return x
-         Nothing -> fail $ "couldn't find cfg for " ++ nm
+         Nothing -> fail $ "Couldn't find MIR function named: " ++ nm
      let st0 = initialCrucibleSetupState cc fn loc
 
      -- execute commands of the method spec
@@ -425,12 +424,8 @@ registerOverride _opts cc _ctx _top_loc _mdMap cs =
   do let c0 = head cs
      let method = c0 ^. MS.csMethod
      let rm = cc^.mccRustModule
-     let cfgMap = rm ^. Mir.rmCFGs
 
-     -- TODO RGS: Factor out CFG lookup logic into its own function
-     Crucible.AnyCFG cfg <- case Map.lookup (Mir.idText method) cfgMap of
-         Just x -> return x
-         Nothing -> fail $ "couldn't find cfg for " ++ show method
+     Crucible.AnyCFG cfg <- lookupDefIdCFG rm method
      let h = Crucible.cfgHandle cfg
      let retTy = Crucible.handleReturnType h
 
@@ -755,10 +750,7 @@ verifySimulate opts cc pfs mspec args assumes top_loc lemmas globals _checkSat m
        Nothing -> fail "mir_verify: static initializer should not require arguments"
 
      -- Find and run the target function
-     -- TODO RGS: Factor out CFG lookup logic into its own function
-     Crucible.AnyCFG methodCfg <- case Map.lookup (Mir.idText method) cfgMap of
-         Just x -> return x
-         Nothing -> fail $ "couldn't find cfg for " ++ show method
+     Crucible.AnyCFG methodCfg <- lookupDefIdCFG rm method
      let methodHndl = Crucible.cfgHandle methodCfg
      let methodArgTys = Crucible.handleArgTypes methodHndl
      let methodRetTy = Crucible.handleReturnType methodHndl
@@ -927,6 +919,18 @@ findDefId crateDisambigs fnName = do
   where
     fnNameStr = Text.unpack fnName
     edid = Text.splitOn "::" fnName
+
+-- | Look up the control-flow graph (CFG) for a 'Mir.DefId', failing if a CFG
+-- cannot be found.
+lookupDefIdCFG ::
+     MonadFail m
+  => Mir.RustModule
+  -> Mir.DefId
+  -> m (Crucible.AnyCFG MIR)
+lookupDefIdCFG rm method =
+  case Map.lookup (Mir.idText method) (rm ^. Mir.rmCFGs) of
+    Just x -> return x
+    Nothing -> fail $ "Couldn't find CFG for MIR function: " ++ show method
 
 setupCrucibleContext :: Mir.RustModule -> TopLevel MIRCrucibleContext
 setupCrucibleContext rm =

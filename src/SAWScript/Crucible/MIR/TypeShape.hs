@@ -4,6 +4,7 @@
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- | The 'TypeShape' data type and related utilities.
@@ -23,6 +24,7 @@ import qualified Data.Map as Map
 import Data.Parameterized.Classes (ShowF)
 import Data.Parameterized.Context (pattern Empty, pattern (:>), Assignment)
 import Data.Parameterized.Some
+import Data.Parameterized.TH.GADT
 import Data.Parameterized.TraversableFC
 import GHC.Stack (HasCallStack)
 import qualified Prettyprinter as PP
@@ -78,47 +80,6 @@ instance PP.Pretty (TypeShape tp) where
 deriving instance Show (TypeShape tp)
 instance ShowF TypeShape
 
-instance TestEquality TypeShape where
-  testEquality (UnitShape ty1) (UnitShape ty2)
-    | ty1 == ty2
-    = Just Refl
-  testEquality (PrimShape ty1 btpr1) (PrimShape ty2 btpr2)
-    | ty1 == ty2
-    , Just Refl <- testEquality btpr1 btpr2
-    = Just Refl
-  testEquality (TupleShape tupleTy1 fieldTys1 shp1) (TupleShape tupleTy2 fieldTys2 shp2)
-    | tupleTy1 == tupleTy2
-    , fieldTys1 == fieldTys2
-    , Just Refl <- testEquality shp1 shp2
-    = Just Refl
-  testEquality (ArrayShape arrayTy1 elemTy1 shp1) (ArrayShape arrayTy2 elemTy2 shp2)
-    | arrayTy1 == arrayTy2
-    , elemTy1 == elemTy2
-    , Just Refl <- testEquality shp1 shp2
-    = Just Refl
-  testEquality (StructShape structTy1 fieldTys1 shp1) (StructShape structTy2 fieldTys2 shp2)
-    | structTy1 == structTy2
-    , fieldTys1 == fieldTys2
-    , Just Refl <- testEquality shp1 shp2
-    = Just Refl
-  testEquality (TransparentShape ty1 shp1) (TransparentShape ty2 shp2)
-    | ty1 == ty2
-    , Just Refl <- testEquality shp1 shp2
-    = Just Refl
-  testEquality (RefShape refTy1 pointeeTy1 mutbl1 tpr1) (RefShape refTy2 pointeeTy2 mutbl2 tpr2)
-    | refTy1 == refTy2
-    , pointeeTy1 == pointeeTy2
-    , mutbl1 == mutbl2
-    , Just Refl <- testEquality tpr1 tpr2
-    = Just Refl
-  testEquality (FnPtrShape ty1 args1 ret1) (FnPtrShape ty2 args2 ret2)
-    | ty1 == ty2
-    , Just Refl <- testEquality args1 args2
-    , Just Refl <- testEquality ret1 ret2
-    = Just Refl
-  testEquality _ _
-    = Nothing
-
 -- | The TypeShape of a struct field, which might have a MaybeType wrapper to
 -- allow for partial initialization.
 data FieldShape (tp :: CrucibleType) where
@@ -131,16 +92,6 @@ instance PP.Pretty (FieldShape tp) where
 
 deriving instance Show (FieldShape tp)
 instance ShowF FieldShape
-
-instance TestEquality FieldShape where
-  testEquality (OptField tpr1) (OptField tpr2)
-    | Just Refl <- testEquality tpr1 tpr2
-    = Just Refl
-  testEquality (ReqField tpr1) (ReqField tpr2)
-    | Just Refl <- testEquality tpr1 tpr2
-    = Just Refl
-  testEquality _ _
-    = Nothing
 
 -- | Return the `TypeShape` of `ty`.
 --
@@ -272,3 +223,23 @@ shapeMirTy (FnPtrShape ty _ _) = ty
 fieldShapeMirTy :: FieldShape tp -> M.Ty
 fieldShapeMirTy (ReqField shp) = shapeMirTy shp
 fieldShapeMirTy (OptField shp) = shapeMirTy shp
+
+$(pure [])
+
+instance TestEquality TypeShape where
+  testEquality =
+    $(structuralTypeEquality
+        [t|TypeShape|]
+        [ (TypeApp (ConType [t|TypeShape|]) AnyType, [|testEquality|])
+        , (TypeApp (ConType [t|BaseTypeRepr|]) AnyType, [|testEquality|])
+        , (TypeApp (TypeApp (ConType [t|Assignment|]) AnyType) AnyType, [|testEquality|])
+        , (TypeApp (ConType [t|TypeRepr|]) AnyType, [|testEquality|])
+        , (TypeApp (ConType [t|CtxRepr|]) AnyType, [|testEquality|])
+        ])
+
+instance TestEquality FieldShape where
+  testEquality =
+    $(structuralTypeEquality
+        [t|FieldShape|]
+        [ (TypeApp (ConType [t|TypeShape|]) AnyType, [|testEquality|])
+        ])

@@ -18,6 +18,10 @@ pub fn id_isize(x: isize) -> isize {
     x
 }
 
+pub fn id_tuple(x: (u32, u32)) -> (u32, u32) {
+    x
+}
+
 pub fn id_u8(x: u8) -> u8 {
     x
 }

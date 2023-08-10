@@ -21,21 +21,27 @@ import qualified Control.Exception as X
 import Control.Lens
 import Control.Monad.IO.Class (MonadIO(..))
 import Data.Foldable (for_, traverse_)
+import qualified Data.Functor.Product as Functor
 import Data.List (tails)
 import qualified Data.Map as Map
 import Data.Map (Map)
+import qualified Data.Parameterized.Context as Ctx
 import Data.Parameterized.Some (Some(..))
+import qualified Data.Parameterized.TraversableFC as FC
 import qualified Data.Set as Set
 import Data.Void (absurd)
 import qualified Prettyprinter as PP
 
 import qualified Cryptol.TypeCheck.AST as Cryptol
 import qualified Cryptol.Eval.Type as Cryptol (TValue(..), evalType)
+import qualified Lang.Crucible.Backend as Crucible
 import qualified Lang.Crucible.Simulator as Crucible
+import qualified Lang.Crucible.Types as Crucible
 import Mir.Intrinsics (MIR)
 import qualified Mir.Mir as Mir
 import qualified What4.Expr as W4
 import qualified What4.Interface as W4
+import qualified What4.Partial as W4
 import qualified What4.ProgramLoc as W4
 
 import Verifier.SAW.Prelude (scEq)
@@ -379,6 +385,29 @@ mkStructuralMismatch _opts cc _sc spec (MIRVal shp _) setupval mty = do
             (Just setupTy)
             mty
 
+readMaybeType ::
+     Crucible.IsSymInterface sym
+  => sym
+  -> String
+  -> Crucible.TypeRepr tp
+  -> Crucible.RegValue sym (Crucible.MaybeType tp)
+  -> IO (Crucible.RegValue sym tp)
+readMaybeType sym desc tpr rv =
+  case readPartExprMaybe sym rv of
+    Just x -> return x
+    Nothing -> error $ "readMaybeType: accessed possibly-uninitialized " ++ desc ++
+        " of type " ++ show tpr
+
+readPartExprMaybe ::
+     Crucible.IsSymInterface sym
+  => sym
+  -> W4.PartExpr (W4.Pred sym) a
+  -> Maybe a
+readPartExprMaybe _sym W4.Unassigned = Nothing
+readPartExprMaybe _sym (W4.PE p v)
+  | Just True <- W4.asConstantPred p = Just v
+  | otherwise = Nothing
+
 resolveSetupValueMIR ::
   Options              ->
   MIRCrucibleContext   ->
@@ -416,20 +445,25 @@ valueToSC sym md failMsg tval (MIRVal shp val) =
     (Cryptol.TVBit, PrimShape _ W4.BaseBoolRepr) ->
       liftIO (toSC sym st val)
     (Cryptol.TVSeq n Cryptol.TVBit, PrimShape _ (W4.BaseBVRepr w))
-      |  n == 8, Just W4.Refl <- W4.testEquality w (W4.knownNat @8)
+      |  n == 8, Just _ <- W4.testEquality w (W4.knownNat @8)
       -> liftIO (toSC sym st val)
-      |  n == 16, Just W4.Refl <- W4.testEquality w (W4.knownNat @16)
+      |  n == 16, Just _ <- W4.testEquality w (W4.knownNat @16)
       -> liftIO (toSC sym st val)
-      |  n == 32, Just W4.Refl <- W4.testEquality w (W4.knownNat @32)
+      |  n == 32, Just _ <- W4.testEquality w (W4.knownNat @32)
       -> liftIO (toSC sym st val)
-      |  n == 64, Just W4.Refl <- W4.testEquality w (W4.knownNat @64)
+      |  n == 64, Just _ <- W4.testEquality w (W4.knownNat @64)
       -> liftIO (toSC sym st val)
-      |  n == 128, Just W4.Refl <- W4.testEquality w (W4.knownNat @128)
+      |  n == 128, Just _ <- W4.testEquality w (W4.knownNat @128)
       -> liftIO (toSC sym st val)
     (Cryptol.TVTuple [], UnitShape _) ->
       liftIO (scUnitValue sc)
-    (Cryptol.TVTuple _tys, TupleShape _ _ _) ->
-      panic "valueToSC" ["tuples not yet implemented"]
+    (Cryptol.TVTuple tys, TupleShape _ _ flds)
+      |  length tys == Ctx.sizeInt (Ctx.size flds)
+      -> do terms <-
+              traverse
+                fieldToSC
+                (zip tys (FC.toListFC Some (Ctx.zipWith Functor.Pair flds val)))
+            liftIO (scTupleReduced sc terms)
     (Cryptol.TVSeq _n _cryty, ArrayShape _ _ _) ->
       panic "valueToSC" ["arrays not yet implemented"]
     _ ->
@@ -437,3 +471,16 @@ valueToSC sym md failMsg tval (MIRVal shp val) =
   where
     st = sym ^. W4.userState
     sc = saw_ctx st
+
+    fieldToSC ::
+         (Cryptol.TValue, Some (Functor.Product FieldShape (Crucible.RegValue' Sym)))
+      -> OverrideMatcher MIR w Term
+    fieldToSC (ty, Some (Functor.Pair fldShp (Crucible.RV tm))) = do
+      mirVal <-
+        case fldShp of
+          ReqField shp' ->
+            pure $ MIRVal shp' tm
+          OptField shp' -> do
+            tm' <- liftIO $ readMaybeType sym "field" (shapeType shp') tm
+            pure $ MIRVal shp' tm'
+      valueToSC sym md failMsg ty mirVal

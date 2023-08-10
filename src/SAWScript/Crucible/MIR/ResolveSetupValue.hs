@@ -26,8 +26,10 @@ import           Control.Lens
 import           Control.Monad (zipWithM)
 import qualified Control.Monad.Catch as X
 import qualified Data.BitVector.Sized as BV
+import qualified Data.Functor.Product as Functor
 import           Data.Map (Map)
 import qualified Data.Map as Map
+import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some (Some(..))
 import           Data.Text (Text)
 import qualified Data.Vector as V
@@ -36,7 +38,7 @@ import           Data.Void (absurd)
 import qualified Cryptol.Eval.Type as Cryptol (TValue(..), tValTy, evalValType)
 import qualified Cryptol.TypeCheck.AST as Cryptol (Type, Schema(..))
 import qualified Cryptol.Utils.PP as Cryptol (pp)
-import Lang.Crucible.Simulator (RegValue)
+import Lang.Crucible.Simulator (RegValue, RegValue'(..))
 import qualified Mir.Generator as Mir
 import qualified Mir.Intrinsics as Mir
 import Mir.Intrinsics (MIR)
@@ -44,6 +46,7 @@ import qualified Mir.Mir as Mir
 
 import qualified What4.BaseTypes as W4
 import qualified What4.Interface as W4
+import qualified What4.Partial as W4
 
 import Verifier.SAW.Cryptol (importType, emptyEnv)
 import Verifier.SAW.SharedTerm
@@ -260,11 +263,15 @@ resolveSAWTerm mcc tp tm =
       if null vals
         then pure $ MIRVal (UnitShape (Mir.TyTuple [])) ()
         else do
-          panic "resolveSAWTerm" ["tuples not yet implemented"]
-          {-
-          mirTys <- traverse (tyToShape col) tps
-          pure $ MIRVal (StructShape M.Adt
-          -}
+          let mirTys = map (\(MIRVal shp _) -> shapeMirTy shp) vals
+          let mirTupleTy = Mir.TyTuple mirTys
+          Some fldAssn <-
+            pure $ Ctx.fromList $
+            map (\(MIRVal shp val) ->
+                  Some $ Functor.Pair (OptField shp) (RV (W4.justPartExpr sym val)))
+                vals
+          let (fldShpAssn, valAssn) = Ctx.unzip fldAssn
+          pure $ MIRVal (TupleShape mirTupleTy mirTys fldShpAssn) valAssn
     Cryptol.TVRec _flds ->
       fail "resolveSAWTerm: unsupported record type"
     Cryptol.TVFun _ _ ->

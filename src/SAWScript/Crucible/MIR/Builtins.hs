@@ -815,7 +815,11 @@ verifySimulate opts cc pfs mspec args assumes top_loc lemmas globals _checkSat m
     prepareArg ty (MIRVal vTy vVal) =
       case testEquality ty (shapeType vTy) of
         Just Refl -> pure vVal
-        Nothing   -> fail "argument type mismatch"
+        Nothing   -> fail $ unlines
+          [ "argument type mismatch"
+          , show ty
+          , show (shapeType vTy)
+          ]
 
     prepareArgs ::
       forall xs.

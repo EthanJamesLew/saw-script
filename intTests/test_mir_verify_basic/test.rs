@@ -1,3 +1,7 @@
+pub fn id_array(x: [u32; 5]) -> [u32; 5] {
+    x
+}
+
 pub fn id_i8(x: i8) -> i8 {
     x
 }

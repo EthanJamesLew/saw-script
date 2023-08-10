@@ -17,9 +17,12 @@ module SAWScript.Crucible.MIR.TypeShape
   , fieldShapeType
   , shapeMirTy
   , fieldShapeMirTy
+  , shapeToTerm
   ) where
 
 import Control.Lens ((^.), (^..), each)
+import Control.Monad.IO.Class (MonadIO(..))
+import Data.Functor.Const (Const(..))
 import qualified Data.Map as Map
 import Data.Parameterized.Classes (ShowF)
 import Data.Parameterized.Context (pattern Empty, pattern (:>), Assignment)
@@ -35,6 +38,8 @@ import Mir.Intrinsics
 import qualified Mir.Mir as M
 import Mir.TransTy ( tyListToCtx, tyToRepr, tyToReprCont, canInitialize
                    , isUnsized, reprTransparentFieldTy )
+
+import qualified Verifier.SAW.SharedTerm as SAW
 
 -- | TypeShape is used to classify MIR `Ty`s and their corresponding
 -- CrucibleTypes into a few common cases.  We don't use `Ty` directly because
@@ -223,6 +228,30 @@ shapeMirTy (FnPtrShape ty _ _) = ty
 fieldShapeMirTy :: FieldShape tp -> M.Ty
 fieldShapeMirTy (ReqField shp) = shapeMirTy shp
 fieldShapeMirTy (OptField shp) = shapeMirTy shp
+
+shapeToTerm :: forall tp m.
+    (MonadIO m, MonadFail m) =>
+    SAW.SharedContext ->
+    TypeShape tp ->
+    m SAW.Term
+shapeToTerm sc = go
+  where
+    go :: forall tp'. TypeShape tp' -> m SAW.Term
+    go (UnitShape _) = liftIO $ SAW.scUnitType sc
+    go (PrimShape _ BaseBoolRepr) = liftIO $ SAW.scBoolType sc
+    go (PrimShape _ (BaseBVRepr w)) = liftIO $ SAW.scBitvector sc (natValue w)
+    go (TupleShape _ _ flds) = do
+        tys <- toListFC getConst <$> traverseFC (\x -> Const <$> goField x) flds
+        liftIO $ SAW.scTupleType sc tys
+    go (ArrayShape (M.TyArray _ n) _ shp) = do
+        ty <- go shp
+        n' <- liftIO $ SAW.scNat sc (fromIntegral n)
+        liftIO $ SAW.scVecType sc n' ty
+    go shp = fail $ "shapeToTerm: unsupported type " ++ show (shapeType shp)
+
+    goField :: forall tp'. FieldShape tp' -> m SAW.Term
+    goField (OptField shp) = go shp
+    goField (ReqField shp) = go shp
 
 $(pure [])
 

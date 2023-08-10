@@ -29,6 +29,7 @@ import qualified Data.Parameterized.Context as Ctx
 import Data.Parameterized.Some (Some(..))
 import qualified Data.Parameterized.TraversableFC as FC
 import qualified Data.Set as Set
+import qualified Data.Vector as V
 import Data.Void (absurd)
 import qualified Prettyprinter as PP
 
@@ -37,6 +38,7 @@ import qualified Cryptol.Eval.Type as Cryptol (TValue(..), evalType)
 import qualified Lang.Crucible.Backend as Crucible
 import qualified Lang.Crucible.Simulator as Crucible
 import qualified Lang.Crucible.Types as Crucible
+import qualified Mir.Intrinsics as Mir
 import Mir.Intrinsics (MIR)
 import qualified Mir.Mir as Mir
 import qualified What4.Expr as W4
@@ -464,8 +466,23 @@ valueToSC sym md failMsg tval (MIRVal shp val) =
                 fieldToSC
                 (zip tys (FC.toListFC Some (Ctx.zipWith Functor.Pair flds val)))
             liftIO (scTupleReduced sc terms)
-    (Cryptol.TVSeq _n _cryty, ArrayShape _ _ _) ->
-      panic "valueToSC" ["arrays not yet implemented"]
+    (Cryptol.TVSeq n cryty, ArrayShape _ _ arrShp)
+      |  Mir.MirVector_Vector vals <- val
+      ,  toInteger (V.length vals) == n
+      -> do terms <- V.toList <$>
+              traverse (\v -> valueToSC sym md failMsg cryty (MIRVal arrShp v)) vals
+            t <- shapeToTerm sc arrShp
+            liftIO (scVectorReduced sc t terms)
+      |  Mir.MirVector_PartialVector vals <- val
+      ,  toInteger (V.length vals) == n
+      -> do vals' <- liftIO $ V.toList <$>
+              traverse (readMaybeType sym "vector element" (shapeType arrShp)) vals
+            terms <-
+              traverse (\v -> valueToSC sym md failMsg cryty (MIRVal arrShp v)) vals'
+            t <- shapeToTerm sc arrShp
+            liftIO (scVectorReduced sc t terms)
+      |  Mir.MirVector_Array{} <- val
+      -> fail "valueToSC: Symbolic arrays not supported"
     _ ->
       failure (MS.conditionLoc md) failMsg
   where

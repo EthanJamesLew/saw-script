@@ -33,6 +33,7 @@ import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some (Some(..))
 import           Data.Text (Text)
 import qualified Data.Vector as V
+import           Data.Vector (Vector)
 import           Data.Void (absurd)
 
 import qualified Cryptol.Eval.Type as Cryptol (TValue(..), tValTy, evalValType)
@@ -145,7 +146,7 @@ resolveSetupVal ::
   Map AllocIndex Text ->
   SetupValue ->
   IO MIRVal
-resolveSetupVal mcc env _tyenv _nameEnv val =
+resolveSetupVal mcc env tyenv nameEnv val =
   case val of
     MS.SetupVar i -> do
       Some ptr <- pure $ lookupAllocIndex env i
@@ -160,7 +161,29 @@ resolveSetupVal mcc env _tyenv _nameEnv val =
     MS.SetupNull empty                -> absurd empty
     MS.SetupGlobal empty _            -> absurd empty
     MS.SetupStruct _ _ _              -> panic "resolveSetupValue" ["structs not yet implemented"]
-    MS.SetupArray _ _                 -> panic "resolveSetupValue" ["arrays not yet implemented"]
+    MS.SetupArray () [] -> fail "resolveSetupVal: invalid empty array"
+    MS.SetupArray () vs -> do
+      vals <- V.mapM (resolveSetupVal mcc env tyenv nameEnv) (V.fromList vs)
+
+      Some (shp :: TypeShape tp) <-
+        case V.head vals of
+          MIRVal shp _ -> pure (Some shp)
+
+      let mirTy :: Mir.Ty
+          mirTy = shapeMirTy shp
+
+          vals' :: Vector (RegValue Sym tp)
+          vals' = V.map (\(MIRVal shp' val') ->
+                          case W4.testEquality shp shp' of
+                            Just Refl -> val'
+                            Nothing -> error $ unlines
+                              [ "resolveSetupVal: internal error"
+                              , show shp
+                              , show shp'
+                              ])
+                        vals
+      return $ MIRVal (ArrayShape (Mir.TyArray mirTy (V.length vals)) mirTy shp)
+                      (Mir.MirVector_Vector vals')
     MS.SetupElem _ _ _                -> panic "resolveSetupValue" ["elems not yet implemented"]
     MS.SetupField _ _ _               -> panic "resolveSetupValue" ["fields not yet implemented"]
     MS.SetupCast empty _ _            -> absurd empty

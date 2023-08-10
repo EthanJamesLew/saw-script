@@ -270,7 +270,6 @@ mir_verify rm nm lemmas checkSat setup tactic =
      cc <- setupCrucibleContext rm
      SomeOnlineBackend bak <- pure (cc^.mccBackend)
      let sym = cc^.mccSym
-     -- let mc = cc^.mccJVMContext
 
      pos <- getPosition
      let loc = SS.toW4Loc "_SAW_verify_prestate" pos
@@ -681,7 +680,7 @@ verifyPrestate cc mspec globals0 =
      let prestateLoc = W4.mkProgramLoc "_SAW_verify_prestate" W4.InternalPos
      liftIO $ W4.setCurrentProgramLoc sym prestateLoc
 
-     -- Allocate LLVM memory for each 'mir_alloc'
+     -- Allocate memory for each 'mir_alloc'
      let doAlloc = panic "verifyPrestate.doAlloc" ["not yet implemented"]
      (env, globals1) <- runStateT
        (Map.traverseWithKey (doAlloc cc) (mspec ^. MS.csPreState . MS.csAllocs))
@@ -733,8 +732,6 @@ verifySimulate opts cc pfs mspec args assumes top_loc lemmas globals _checkSat m
      let method = mspec ^. MS.csMethod
      let verbosity = simVerbose opts
      let halloc = cc^.mccHandleAllocator
-
-     -- executeCrucibleJVM
 
      when (verbosity > 2) $
           putStrLn "starting executeCrucibleMIR"

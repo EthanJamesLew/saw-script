@@ -149,8 +149,9 @@ compileMIRContract fileReader bic cenv0 c =
       MS.SetupTerm <$> getTypedTerm cenv expr
     getSetupVal _ NullValue =
       MIRSetupM $ fail "Null setup values unsupported in the MIR API."
-    getSetupVal _ (ArrayValue _) =
-      MIRSetupM $ fail "Array setup values unsupported in the MIR API."
+    getSetupVal env (ArrayValue elts) =
+      do elts' <- mapM (getSetupVal env) elts
+         MIRSetupM $ return $ MS.SetupArray () elts'
     getSetupVal _ (TupleValue _) =
       MIRSetupM $ fail "Tuple setup values unsupported in the MIR API."
     getSetupVal _ (FieldLValue _ _) =

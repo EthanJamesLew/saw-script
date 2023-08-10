@@ -67,7 +67,7 @@ type Sym = W4.ExprBuilder Nonce.GlobalNonceGenerator SAWCoreState (W4.Flags W4.F
 type Backend solver = OnlineBackend solver Nonce.GlobalNonceGenerator SAWCoreState (W4.Flags W4.FloatReal)
 
 data SomeOnlineBackend =
-  forall solver. OnlineSolver solver =>
+  forall solver. OnlineSolver solver => 
     SomeOnlineBackend (Backend solver)
 
 data SAWCruciblePersonality sym = SAWCruciblePersonality

@@ -381,28 +381,3 @@ regToTerm sym sc name w4VarMapRef shp rv = go shp rv
             go shp rv'
     goVector _shp (MirVector_Array _) = fail $
         "regToTerm: MirVector_Array not supported"
-
-shapeToTerm :: forall tp m.
-    (MonadIO m, MonadFail m) =>
-    SAW.SharedContext ->
-    TypeShape tp ->
-    m SAW.Term
-shapeToTerm sc shp = go shp
-  where
-    go :: forall tp. TypeShape tp -> m SAW.Term
-    go (UnitShape _) = liftIO $ SAW.scUnitType sc
-    go (PrimShape _ BaseBoolRepr) = liftIO $ SAW.scBoolType sc
-    go (PrimShape _ (BaseBVRepr w)) = liftIO $ SAW.scBitvector sc (natValue w)
-    go (TupleShape _ _ flds) = do
-        tys <- toListFC getConst <$> traverseFC (\x -> Const <$> goField x) flds
-        liftIO $ SAW.scTupleType sc tys
-    go (ArrayShape (M.TyArray _ n) _ shp) = do
-        ty <- go shp
-        n <- liftIO $ SAW.scNat sc (fromIntegral n)
-        liftIO $ SAW.scVecType sc n ty
-    go shp = fail $ "shapeToTerm: unsupported type " ++ show (shapeType shp)
-
-    goField :: forall tp. FieldShape tp -> m SAW.Term
-    goField (OptField shp) = go shp
-    goField (ReqField shp) = go shp
-

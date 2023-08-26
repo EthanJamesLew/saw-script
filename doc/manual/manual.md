@@ -2107,7 +2107,7 @@ implemented include the following:
 
 * MIR specifications that use overrides (i.e., the `[MIRSpec]` argument to
   `mir_verify` must always be the empty list at present)
-* The ability to construct MIR `struct` or `enum` values in specifications
+* The ability to construct MIR `enum` values in specifications
 * The ability to specify the layout of slice values
 
 The `String` supplied as an argument to `mir_verify` is expected to be a

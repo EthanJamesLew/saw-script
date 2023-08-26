@@ -192,7 +192,7 @@ ppSetupValue setupval = case setupval of
         ppSetupStructLLVM packed vs
       (JVMExt, empty) ->
         absurd empty
-      (MIRExt, ()) ->
+      (MIRExt, _defId) ->
         ppSetupStructDefault vs
   SetupArray _ vs  -> PP.brackets (commaList (map ppSetupValue vs))
   SetupElem _ v i  -> PP.parens (ppSetupValue v) PP.<> PP.pretty ("." ++ show i)

@@ -93,6 +93,7 @@ import qualified Verifier.SAW.Cryptol.Prelude as CryptolSAW
 -- Crucible
 import qualified Lang.Crucible.JVM as CJ
 import           Mir.Intrinsics (MIR)
+import qualified Mir.Mir as Mir
 import qualified SAWScript.Crucible.Common as CC
 import qualified SAWScript.Crucible.Common.MethodSpec as CMS
 import qualified SAWScript.Crucible.JVM.BuiltinsJVM as CJ
@@ -3877,6 +3878,15 @@ primitives = Map.fromList
     , "section."
     ]
 
+  , prim "mir_find_adt" "MIRModule -> String -> [MIRType] -> MIRAdt"
+    (funVal3 mir_find_adt)
+    Experimental
+    [ "Consult the given MIRModule to find an algebraic data type (MIRAdt)"
+    , "with the given String as an identifier and the given MIRTypes as the"
+    , "types used to instantiate the type parameters. If such a MIRAdt cannot"
+    , "be found in the MIRModule, this will raise an error."
+    ]
+
   , prim "mir_fresh_var" "String -> MIRType -> MIRSetup Term"
     (pureVal mir_fresh_var)
     Experimental
@@ -3921,6 +3931,14 @@ primitives = Map.fromList
     [ "Specify the given value as the return value of the method. A"
     , "mir_return statement is required if and only if the method"
     , "has a non-() return type." ]
+
+  , prim "mir_struct_value" "MIRAdt -> [MIRValue] -> MIRValue"
+    (pureVal (CMS.SetupStruct :: Mir.Adt -> [CMS.SetupValue MIR] -> CMS.SetupValue MIR))
+    Experimental
+    [ "Create a SetupValue representing a MIR struct with the given list of"
+    , "values as elements. The MIRAdt argument determines what struct type to"
+    , "create; use `mir_find_adt` to retrieve a MIRAdt value."
+    ]
 
   , prim "mir_term"
     "Term -> MIRValue"
@@ -4019,6 +4037,13 @@ primitives = Map.fromList
     Experimental
     [ "The type of MIR strings, which are a particular kind of slice."
     , "Currently, SAW can only handle references to strings (&str)." ]
+
+  , prim "mir_struct" "MIRAdt -> MIRType"
+    (pureVal mir_struct)
+    Experimental
+    [ "The type of a MIR struct corresponding to the given MIRAdt. Use the"
+    , "`mir_find_adt` command to retrieve a MIRAdt value."
+    ]
 
   , prim "mir_tuple" "[MIRType] -> MIRType"
     (pureVal mir_tuple)
@@ -4630,6 +4655,11 @@ primitives = Map.fromList
                -> Options -> BuiltinContext -> Value
     funVal2 f _ _ = VLambda $ \a -> return $ VLambda $ \b ->
       fmap toValue (f (fromValue a) (fromValue b))
+
+    funVal3 :: forall a b c t. (FromValue a, FromValue b, FromValue c, IsValue t) => (a -> b -> c -> TopLevel t)
+               -> Options -> BuiltinContext -> Value
+    funVal3 f _ _ = VLambda $ \a -> return $ VLambda $ \b -> return $ VLambda $ \c ->
+      fmap toValue (f (fromValue a) (fromValue b) (fromValue c))
 
     scVal :: forall t. IsValue t =>
              (SharedContext -> t) -> Options -> BuiltinContext -> Value

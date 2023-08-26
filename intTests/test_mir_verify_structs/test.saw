@@ -1,0 +1,35 @@
+enable_experimental;
+
+m <- mir_load_module "test.linked-mir.json";
+
+let f_spec adt = do {
+    x1 <- mir_fresh_var "x1" mir_u32;
+    y1 <- mir_fresh_var "y1" mir_u32;
+    let s = mir_struct_value
+              adt
+              [ mir_term x1
+              , mir_term y1
+              ];
+
+    mir_execute_func [s];
+
+    let s' = mir_struct_value
+              adt
+              [ mir_term {{ y1 + 1 }}
+              , mir_term {{ x1 + 2 }}
+              ];
+    mir_return s';
+};
+
+
+let f1_spec = f_spec (mir_find_adt m "test::S1" []);
+let f2_spec = f_spec (mir_find_adt m "test::S2" [mir_u32, mir_u32]);
+
+mir_verify m "test::f1" [] false f1_spec z3;
+mir_verify m "test::f2" [] false f2_spec z3;
+fails (
+  mir_verify m "test::f1" [] false f2_spec z3
+);
+fails (
+  mir_verify m "test::f2" [] false f1_spec z3
+);

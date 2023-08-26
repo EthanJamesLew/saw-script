@@ -43,6 +43,7 @@ import qualified Mir.Generator as Mir
 import qualified Mir.Intrinsics as Mir
 import Mir.Intrinsics (MIR)
 import qualified Mir.Mir as Mir
+import qualified Mir.TransTy as Mir
 import qualified What4.Expr as W4
 import qualified What4.Interface as W4
 import qualified What4.Partial as W4
@@ -179,9 +180,9 @@ instantiateSetupValue sc s v =
   case v of
     MS.SetupVar _                     -> return v
     MS.SetupTerm tt                   -> MS.SetupTerm <$> doTerm tt
+    MS.SetupStruct did vs             -> MS.SetupStruct did <$> mapM (instantiateSetupValue sc s) vs
     MS.SetupNull empty                -> absurd empty
     MS.SetupGlobal empty _            -> absurd empty
-    MS.SetupStruct _ _                -> return v
     MS.SetupArray _ _                 -> return v
     MS.SetupElem _ _ _                -> return v
     MS.SetupField _ _ _               -> return v
@@ -301,23 +302,53 @@ matchArg opts sc cc cs prepost md actual expectedTy expected@(MS.SetupTerm expec
        realTerm <- valueToSC sym md failMsg tval actual
        matchTerm sc cc md prepost realTerm (ttTerm expectedTT)
 
-matchArg opts sc cc cs _prepost md actual@(MIRVal (RefShape _refTy pointeeTy mutbl tpr) ref) expectedTy setupval =
-  case setupval of
-    MS.SetupVar var ->
-      do assignVar cc md var (Some (MirPointer tpr mutbl pointeeTy ref))
+matchArg opts sc cc cs prepost md actual expectedTy expected =
+  mccWithBackend cc $ \bak -> do
+  let sym = backendGetSym bak
+  case (actual, expectedTy, expected) of
+    (MIRVal (RefShape _refTy pointeeTy mutbl tpr) ref, _, MS.SetupVar var) ->
+       do assignVar cc md var (Some (MirPointer tpr mutbl pointeeTy ref))
 
-    MS.SetupNull empty                -> absurd empty
-    MS.SetupGlobal empty _            -> absurd empty
-    MS.SetupCast empty _              -> absurd empty
-    MS.SetupUnion empty _ _           -> absurd empty
-    MS.SetupGlobalInitializer empty _ -> absurd empty
+    -- match the fields of struct point-wise
+    (MIRVal (StructShape _ _ xsFldShps) (Crucible.AnyValue tpr@(Crucible.StructRepr _) xs),
+     Mir.TyAdt nm _ _,
+     MS.SetupStruct _ zs)
+      | Ctx.sizeInt (Ctx.size xs) == length zs
+      , let xsTpr = Crucible.StructRepr (FC.fmapFC fieldShapeType xsFldShps)
+      , Just Refl <- W4.testEquality tpr xsTpr ->
+        case Map.lookup nm (col ^. Mir.adts) of
+          Just adt | Just _ty' <- Mir.reprTransparentFieldTy col adt ->
+            -- TODO RGS
+            error "matchArg: transparent"
+            -- mapSome (TransparentShape ty) $ go ty'
+          Just (Mir.Adt _ Mir.Struct [v] _ _ _ _) ->
+            let ys = v ^.. Mir.vfields . each . Mir.fty in
+            sequence_
+              [ case xFldShp of
+                  ReqField shp ->
+                    matchArg opts sc cc cs prepost md (MIRVal shp x) y z
+                  OptField shp -> do
+                    x' <- liftIO $ readMaybeType sym "field" (shapeType shp) x
+                    matchArg opts sc cc cs prepost md (MIRVal shp x') y z
+              | (Some (Functor.Pair xFldShp (Crucible.RV x)), y, z) <-
+                  zip3 (FC.toListFC Some (Ctx.zipWith Functor.Pair xsFldShps xs))
+                       ys
+                       zs ]
+          Just (Mir.Adt _ ak _ _ _ _ _) ->
+            error $ "matchArg: AdtKind " ++ show ak ++ " NYI"
+          Nothing ->
+            error $ "matchArg: bad adt"
 
-    _ -> failure (cs ^. MS.csLoc) =<<
-           mkStructuralMismatch opts cc sc cs actual setupval expectedTy
+    (_, _, MS.SetupNull empty)                -> absurd empty
+    (_, _, MS.SetupGlobal empty _)            -> absurd empty
+    (_, _, MS.SetupCast empty _)              -> absurd empty
+    (_, _, MS.SetupUnion empty _ _)           -> absurd empty
+    (_, _, MS.SetupGlobalInitializer empty _) -> absurd empty
 
-matchArg opts sc cc cs _prepost md actual expectedTy expected =
-  failure (MS.conditionLoc md) =<<
-    mkStructuralMismatch opts cc sc cs actual expected expectedTy
+    _ -> failure (MS.conditionLoc md) =<<
+           mkStructuralMismatch opts cc sc cs actual expected expectedTy
+  where
+    col = cc ^. mccRustModule ^. Mir.rmCS ^. Mir.collection
 
 -- | For each points-to statement read the memory value through the
 -- given pointer (lhs) and match the value against the given pattern

@@ -171,6 +171,7 @@ data Value
   | VJavaClass JSS.Class
   | VLLVMModule (Some CMSLLVM.LLVMModule)
   | VMIRModule RustModule
+  | VMIRAdt MIR.Adt
   | VHeapsterEnv HeapsterEnv
   | VSatResult SatResult
   | VProofResult ProofResult
@@ -352,6 +353,7 @@ showsPrecValue opts nenv p v =
     VCryptolModule m -> showString (showCryptolModule m)
     VLLVMModule (Some m) -> showString (CMSLLVM.showLLVMModule m)
     VMIRModule m -> shows (PP.pretty (m^.rmCS^.collection))
+    VMIRAdt adt -> shows (PP.pretty adt)
     VHeapsterEnv env -> showString (showHeapsterEnv env)
     VJavaClass c -> shows (prettyClass c)
     VProofResult r -> showsProofResult opts r
@@ -1286,6 +1288,13 @@ instance IsValue RustModule where
 instance FromValue RustModule where
     fromValue (VMIRModule m) = m
     fromValue _ = error "fromValue RustModule"
+
+instance IsValue MIR.Adt where
+    toValue adt = VMIRAdt adt
+
+instance FromValue MIR.Adt where
+    fromValue (VMIRAdt adt) = adt
+    fromValue _ = error "fromValue Adt"
 
 instance IsValue HeapsterEnv where
     toValue m = VHeapsterEnv m

@@ -6,6 +6,8 @@
 
   * The `mir_load_module` function loads a MIR JSON file into SAW.
   * The `mir_verify` function performs verification of a MIR function.
+  * The `mir_assume` function assumes a specification for a MIR function without
+    performing any verification.
   * The `saw_client.mir` module contains utility functions for constructing
     MIR types.
 

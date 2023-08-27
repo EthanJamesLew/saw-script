@@ -2105,8 +2105,6 @@ some parts of `mir_verify` are not currently implemented, so it is possible
 that using `mir_verify` on some programs will fail. Features that are not yet
 implemented include the following:
 
-* MIR specifications that use overrides (i.e., the `[MIRSpec]` argument to
-  `mir_verify` must always be the empty list at present)
 * The ability to construct MIR `struct` or `enum` values in specifications
 * The ability to specify the layout of slice values
 
@@ -2830,18 +2828,18 @@ the target code. However, in some cases, it can be useful to use a
 `MethodSpec` to specify some code that either doesn't exist or is hard
 to prove. The previously-mentioned [`assume_unsat`
 tactic](#miscellaneous-tactics) omits proof but does not prevent
-simulation of the function. To skip simulation altogether, one can use:
+simulation of the function. To skip simulation altogether, one can use
+one of the following commands:
 
 ~~~
 llvm_unsafe_assume_spec :
   LLVMModule -> String -> LLVMSetup () -> TopLevel CrucibleMethodSpec
-~~~
 
-Or, in the experimental JVM implementation:
-
-~~~
 jvm_unsafe_assume_spec :
   JavaClass -> String -> JVMSetup () -> TopLevel JVMMethodSpec
+
+mir_unsafe_assume_spec :
+  MIRModule -> String -> MIRSetup () -> TopLevel MIRSpec
 ~~~
 
 ## A Heap-Based Example

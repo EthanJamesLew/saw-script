@@ -6,6 +6,8 @@
 
   * The `SAW/MIR/load module` command loads a MIR JSON file into SAW.
   * The `SAW/MIR/verify` command performs verification of a MIR function.
+  * The `SAW/MIR/assume` command assumes a specification for a MIR function
+    without performing any verification.
 
   See the [remote API
   documentation](https://github.com/GaloisInc/saw-script/blob/master/saw-remote-api/docs/SAW.rst#sawmirload-module-command)

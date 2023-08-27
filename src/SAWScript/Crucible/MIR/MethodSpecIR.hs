@@ -21,6 +21,7 @@ module SAWScript.Crucible.MIR.MethodSpecIR
 
     -- * @MirAllocSpec@
   , MirAllocSpec(..)
+  , maConditionMetadata
   , maType
   , maMutbl
   , maMirType
@@ -118,7 +119,8 @@ instance PP.Pretty MirPointsTo where
         PP.pretty (show alloc) PP.<+> "->" PP.<+> PP.list (map MS.ppSetupValue sv)
 
 data MirAllocSpec tp = MirAllocSpec
-    { _maType :: TypeRepr tp
+    { _maConditionMetadata :: MS.ConditionMetadata
+    , _maType :: TypeRepr tp
     , _maMutbl :: M.Mutability
     , _maMirType :: M.Ty
     , _maLen :: Int

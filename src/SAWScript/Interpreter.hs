@@ -3928,6 +3928,14 @@ primitives = Map.fromList
     Experimental
     [ "Construct a `MIRValue` from a `Term`." ]
 
+  , prim "mir_unsafe_assume_spec"
+    "MIRModule -> String -> MIRSetup () -> TopLevel MIRSpec"
+    (pureVal mir_unsafe_assume_spec)
+    Experimental
+    [ "Return a MIRSpec corresponding to a MIRSetup block, as would be"
+    , "returned by mir_verify but without performing any verification."
+    ]
+
   , prim "mir_verify"
     "MIRModule -> String -> [MIRSpec] -> Bool -> MIRSetup () -> ProofScript () -> TopLevel MIRSpec"
     (pureVal mir_verify)

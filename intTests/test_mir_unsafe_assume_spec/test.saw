@@ -1,0 +1,22 @@
+enable_experimental;
+
+let f_spec = do {
+    x <- mir_fresh_var "x" mir_u32;
+
+    mir_execute_func [mir_term x];
+
+    mir_return (mir_term x);
+};
+
+let g_spec = do {
+    x <- mir_fresh_var "x" mir_u32;
+
+    mir_execute_func [mir_term x];
+
+    mir_return (mir_term {{ x + 1 }});
+};
+
+m <- mir_load_module "test.linked-mir.json";
+
+f_ov <- mir_unsafe_assume_spec m "test::f" f_spec;
+mir_verify m "test::g" [f_ov] false g_spec z3;

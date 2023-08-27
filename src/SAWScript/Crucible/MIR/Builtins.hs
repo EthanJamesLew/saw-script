@@ -19,6 +19,7 @@ module SAWScript.Crucible.MIR.Builtins
   , mir_postcond
   , mir_precond
   , mir_return
+  , mir_unsafe_assume_spec
   , mir_verify
     -- ** MIR types
   , mir_array
@@ -52,12 +53,11 @@ import Control.Monad.IO.Class (MonadIO(..))
 import Control.Monad.Reader (runReaderT)
 import Control.Monad.State (MonadState(..), StateT(..), execStateT, gets)
 import Control.Monad.Trans.Class (MonadTrans(..))
-import qualified Data.BitVector.Sized as BV
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Foldable as F
 import Data.Foldable (for_)
 import Data.IORef
-import qualified Data.List.Extra as List (groupOn)
+import qualified Data.List.NonEmpty as NE
 import Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.Map as Map
 import Data.Map (Map)
@@ -71,7 +71,6 @@ import Data.Text (Text)
 import Data.Time.Clock (diffUTCTime, getCurrentTime)
 import Data.Type.Equality (TestEquality(..))
 import Data.Void (absurd)
-import Numeric.Natural (Natural)
 import qualified Prettyprinter as PP
 import System.IO (stdout)
 
@@ -115,10 +114,10 @@ import SAWScript.Crucible.MIR.ResolveSetupValue
 import SAWScript.Crucible.MIR.TypeShape
 import SAWScript.Exceptions
 import SAWScript.Options
-import SAWScript.Panic
 import qualified SAWScript.Position as SS
 import SAWScript.Proof
 import SAWScript.Prover.SolverStats
+import SAWScript.Utils (neGroupOn)
 import SAWScript.Value
 
 type AssumptionReason = (MS.ConditionMetadata, String)
@@ -150,10 +149,19 @@ mir_alloc_internal mut mty =
   do st <- get
      let mcc = st ^. Setup.csCrucibleContext
      let col = mcc ^. mccRustModule ^. Mir.rmCS ^. Mir.collection
+     loc <- getW4Position "mir_alloc"
      Some tpr <- pure $ Mir.tyToRepr col mty
      n <- Setup.csVarCounter <<%= MS.nextAllocIndex
+     tags <- view Setup.croTags
+     let md = MS.ConditionMetadata
+              { MS.conditionLoc = loc
+              , MS.conditionTags = tags
+              , MS.conditionType = "fresh allocation"
+              , MS.conditionContext = ""
+              }
      Setup.currentState . MS.csAllocs . at n ?=
-       Some (MirAllocSpec { _maType = tpr
+       Some (MirAllocSpec { _maConditionMetadata = md
+                          , _maType = tpr
                           , _maMutbl = mut
                           , _maMirType = mty
                           , _maLen = 1
@@ -309,6 +317,29 @@ mir_points_to_check_lhs_validity ref loc =
        Mir.TyRef referentTy _ -> pure referentTy
        _ -> throwCrucibleSetup loc $ "lhs not a reference type: " ++ show refTy
 
+mir_unsafe_assume_spec ::
+  Mir.RustModule ->
+  String       {- ^ Name of the function -} ->
+  MIRSetupM () {- ^ Boundary specification -} ->
+  TopLevel Lemma
+mir_unsafe_assume_spec rm nm setup =
+  do cc <- setupCrucibleContext rm
+     pos <- getPosition
+     let loc = SS.toW4Loc "_SAW_assume_spec" pos
+     let cs = rm ^. Mir.rmCS
+         col = cs ^. Mir.collection
+         crateDisambigs = cs ^. Mir.crateHashesMap
+     -- TODO RGS: The lines below are copied from mir_verify, factor them out
+     did <- findDefId crateDisambigs (Text.pack nm)
+     fn <- case Map.lookup did (col ^. Mir.functions) of
+         Just x -> return x
+         Nothing -> fail $ "Couldn't find MIR function named: " ++ nm
+     let st0 = initialCrucibleSetupState cc fn loc
+     ms <- (view Setup.csMethodSpec) <$>
+             execStateT (runReaderT (runMIRSetupM setup) Setup.makeCrucibleSetupRO) st0
+     ps <- io (MS.mkProvedSpec MS.SpecAdmitted ms mempty mempty mempty 0)
+     returnProof ps
+
 mir_verify ::
   Mir.RustModule ->
   String {- ^ method name -} ->
@@ -327,6 +358,9 @@ mir_verify rm nm lemmas checkSat setup tactic =
      cc <- setupCrucibleContext rm
      SomeOnlineBackend bak <- pure (cc^.mccBackend)
      let sym = cc^.mccSym
+
+     sosp <- rwSingleOverrideSpecialCase <$> getTopLevelRW
+     let ?singleOverrideSpecialCase = sosp
 
      pos <- getPosition
      let loc = SS.toW4Loc "_SAW_verify_prestate" pos
@@ -471,17 +505,21 @@ assertEqualVals cc v1 v2 =
      toSC sym st =<< equalValsPred cc v1 v2
 
 registerOverride ::
+  (?singleOverrideSpecialCase :: Bool) =>
   Options ->
   MIRCrucibleContext ->
   Crucible.SimContext (SAWCruciblePersonality Sym) Sym MIR ->
   W4.ProgramLoc ->
   IORef MetadataMap {- ^ metadata map -} ->
-  [MethodSpec] ->
+  NonEmpty MethodSpec ->
   Crucible.OverrideSim (SAWCruciblePersonality Sym) Sym MIR rtp args ret ()
-registerOverride _opts cc _ctx _top_loc _mdMap cs =
-  do let c0 = head cs
+registerOverride opts cc _ctx _top_loc mdMap cs =
+  do let sym = cc^.mccSym
+     let c0 = NE.head cs
      let method = c0 ^. MS.csMethod
      let rm = cc^.mccRustModule
+
+     sc <- saw_ctx <$> liftIO (sawCoreState sym)
 
      Crucible.AnyCFG cfg <- lookupDefIdCFG rm method
      let h = Crucible.cfgHandle cfg
@@ -492,7 +530,7 @@ registerOverride _opts cc _ctx _top_loc _mdMap cs =
        $ Crucible.mkOverride'
            (Crucible.handleName h)
            retTy
-           (panic "registerOverride.methodSpecHandler" ["not yet implemented"])
+           (methodSpecHandler opts sc cc mdMap cs h)
 
 resolveArguments ::
   MIRCrucibleContext ->
@@ -533,34 +571,8 @@ setupPrePointsTos ::
   [MirPointsTo] ->
   Crucible.SymGlobalState Sym ->
   IO (Crucible.SymGlobalState Sym)
-setupPrePointsTos mspec cc env pts mem0 = foldM doPointsTo mem0 pts
-  where
-    tyenv = MS.csAllocations mspec
-    nameEnv = mspec ^. MS.csPreState . MS.csVarTypeNames
-
-    doPointsTo ::
-         Crucible.SymGlobalState Sym
-      -> MirPointsTo
-      -> IO (Crucible.SymGlobalState Sym)
-    doPointsTo globals (MirPointsTo _ allocIdx referents) =
-      mccWithBackend cc $ \bak -> do
-        referent <- firstPointsToReferent referents
-        MIRVal referentTy referentVal <-
-          resolveSetupVal cc env tyenv nameEnv referent
-        Some mp <- pure $ lookupAllocIndex env allocIdx
-        -- By the time we reach here, we have already checked (in mir_points_to)
-        -- that the type of the reference is compatible with the right-hand side
-        -- value, so the equality check below should never fail.
-        Refl <-
-          case W4.testEquality (mp^.mpType) (shapeType referentTy) of
-            Just r -> pure r
-            Nothing ->
-              panic "setupPrePointsTos"
-                    [ "Unexpected type mismatch between reference and referent"
-                    , "Reference type: " ++ show (mp^.mpType)
-                    , "Referent type:  " ++ show (shapeType referentTy)
-                    ]
-        Mir.writeMirRefIO bak globals Mir.mirIntrinsicTypes (mp^.mpRef) referentVal
+setupPrePointsTos mspec cc env pts mem0 =
+  foldM (doPointsTo mspec cc env) mem0 pts
 
 -- | Collects boolean terms that should be assumed to be true.
 setupPrestateConditions ::
@@ -791,6 +803,7 @@ verifyPrestate cc mspec globals0 =
 -- | Simulate a MIR function with Crucible as part of a 'mir_verify' command,
 -- making sure to install any overrides that the user supplies.
 verifySimulate ::
+  (?singleOverrideSpecialCase :: Bool) =>
   Options ->
   MIRCrucibleContext ->
   [Crucible.GenericExecutionFeature Sym] ->
@@ -849,7 +862,7 @@ verifySimulate opts cc pfs mspec args assumes top_loc lemmas globals _checkSat m
                    _ <- Crucible.callCFG staticInitCfg Crucible.emptyRegMap
 
                    mapM_ (registerOverride opts cc simctx top_loc mdMap)
-                           (List.groupOn (view MS.csMethod) (map (view MS.psSpec) lemmas))
+                           (neGroupOn (view MS.csMethod) (map (view MS.psSpec) lemmas))
                    liftIO $
                      for_ assumes $ \(Crucible.LabeledPred p (md, reason)) ->
                        do expr <- resolveSAWPred cc p
@@ -916,173 +929,6 @@ verifySimulate opts cc pfs mspec args assumes top_loc lemmas globals _checkSat m
 -- Utilities
 --------------------------------------------------------------------------------
 
--- | Check if two 'Mir.Ty's are compatible in SAW. This is a slightly coarser
--- notion of equality to reflect the fact that MIR's type system is richer than
--- Cryptol's type system, and some types which would be distinct in MIR are in
--- fact equal when converted to the equivalent Cryptol types. In particular:
---
--- 1. A @u<N>@ type is always compatible with an @i<N>@ type. For instance, @u8@
---    is compatible with @i8@, and @u16@ is compatible with @i16@. Note that the
---    bit sizes of both types must be the same. For instance, @u8@ is /not/
---    compatible with @i16@.
---
--- 2. The @usize@/@isize@ types are always compatible with @u<N>@/@i<N>@, where
---    @N@ is the number of bits corresponding to the 'Mir.SizeBits' type in
---    "Mir.Intrinsics". (This is a bit unsavory, as the actual size of
---    @usize@/@isize@ is platform-dependent, but this is the current approach.)
---
--- 3. Compatibility applies recursively. For instance, @[ty_1; N]@ is compatible
---    with @[ty_2; N]@ iff @ty_1@ and @ty_2@ are compatibile. Similarly, a tuple
---    typle @(ty_1_a, ..., ty_n_a)@ is compatible with @(ty_1_b, ..., ty_n_b)@
---    iff @ty_1_a@ is compatible with @ty_1_b@, ..., and @ty_n_a@ is compatible
---    with @ty_n_b@.
---
--- See also @checkRegisterCompatibility@ in "SAWScript.Crucible.LLVM.Builtins"
--- and @registerCompatible@ in "SAWScript.Crucible.JVM.Builtins", which fill a
--- similar niche in the LLVM and JVM backends, respectively.
-checkCompatibleTys :: Mir.Ty -> Mir.Ty -> Bool
-checkCompatibleTys ty1 ty2 = tyView ty1 == tyView ty2
-
--- | Like 'Mir.Ty', but where:
---
--- * The 'TyInt' and 'TyUint' constructors have been collapsed into a single
---   'TyViewInt' constructor.
---
--- * 'TyViewInt' uses 'BaseSizeView' instead of 'Mir.BaseSize'.
---
--- * Recursive occurrences of 'Mir.Ty' use 'TyView' instead. This also applies
---   to fields of type 'SubstsView' and 'FnSigView', which also replace 'Mir.Ty'
---   with 'TyView' in their definitions.
---
--- This provides a coarser notion of equality than what the 'Eq' instance for
--- 'Mir.Ty' provides, which distinguishes the two sorts of integer types.
---
--- This is an internal data type that is used to power the 'checkCompatibleTys'
--- function. Refer to the Haddocks for that function for more information on why
--- this is needed.
-data TyView
-  = TyViewBool
-  | TyViewChar
-    -- | The sole integer type. Both 'TyInt' and 'TyUint' are mapped to
-    -- 'TyViewInt', and 'BaseSizeView' is used instead of 'Mir.BaseSize'.
-  | TyViewInt !BaseSizeView
-  | TyViewTuple ![TyView]
-  | TyViewSlice !TyView
-  | TyViewArray !TyView !Int
-  | TyViewRef !TyView !Mir.Mutability
-  | TyViewAdt !Mir.DefId !Mir.DefId !SubstsView
-  | TyViewFnDef !Mir.DefId
-  | TyViewClosure [TyView]
-  | TyViewStr
-  | TyViewFnPtr !FnSigView
-  | TyViewDynamic !Mir.TraitName
-  | TyViewRawPtr !TyView !Mir.Mutability
-  | TyViewFloat !Mir.FloatKind
-  | TyViewDowncast !TyView !Integer
-  | TyViewNever
-  | TyViewForeign
-  | TyViewLifetime
-  | TyViewConst
-  | TyViewErased
-  | TyViewInterned Mir.TyName
-  deriving Eq
-
--- | Like 'Mir.BaseSize', but without a special case for @usize@/@isize@.
--- Instead, these are mapped to their actual size, which is determined by the
--- number of bits in the 'Mir.SizeBits' type in "Mir.Intrinsics". (This is a bit
--- unsavory, as the actual size of @usize@/@isize@ is platform-dependent, but
--- this is the current approach.)
-data BaseSizeView
-  = B8View
-  | B16View
-  | B32View
-  | B64View
-  | B128View
-  deriving Eq
-
--- | Like 'Mir.Substs', but using 'TyView's instead of 'Mir.Ty'.
---
--- This is an internal data type that is used to power the 'checkCompatibleTys'
--- function. Refer to the Haddocks for that function for more information on why
--- this is needed.
-newtype SubstsView = SubstsView [TyView]
-  deriving Eq
-
--- | Like 'Mir.FnSig', but using 'TyView's instead of 'Mir.Ty'.
---
--- This is an internal data type that is used to power the 'checkCompatibleTys'
--- function. Refer to the Haddocks for that function for more information on why
--- this is needed.
-data FnSigView = FnSigView {
-    _fsvarg_tys    :: ![TyView]
-  , _fsvreturn_ty  :: !TyView
-  , _fsvabi        :: Mir.Abi
-  , _fsvspreadarg  :: Maybe Int
-  }
-  deriving Eq
-
--- | Convert a 'Mir.Ty' value to a 'TyView' value.
-tyView :: Mir.Ty -> TyView
--- The two most important cases. Both sorts of integers are mapped to TyViewInt.
-tyView (Mir.TyInt  bs) = TyViewInt (baseSizeView bs)
-tyView (Mir.TyUint bs) = TyViewInt (baseSizeView bs)
--- All other cases are straightforward.
-tyView Mir.TyBool = TyViewBool
-tyView Mir.TyChar = TyViewChar
-tyView (Mir.TyTuple tys) = TyViewTuple (map tyView tys)
-tyView (Mir.TySlice ty) = TyViewSlice (tyView ty)
-tyView (Mir.TyArray ty n) = TyViewArray (tyView ty) n
-tyView (Mir.TyRef ty mut) = TyViewRef (tyView ty) mut
-tyView (Mir.TyAdt monoDid origDid substs) =
-  TyViewAdt monoDid origDid (substsView substs)
-tyView (Mir.TyFnDef did) = TyViewFnDef did
-tyView (Mir.TyClosure tys) = TyViewClosure (map tyView tys)
-tyView Mir.TyStr = TyViewStr
-tyView (Mir.TyFnPtr sig) = TyViewFnPtr (fnSigView sig)
-tyView (Mir.TyDynamic trait) = TyViewDynamic trait
-tyView (Mir.TyRawPtr ty mut) = TyViewRawPtr (tyView ty) mut
-tyView (Mir.TyFloat fk) = TyViewFloat fk
-tyView (Mir.TyDowncast ty n) = TyViewDowncast (tyView ty) n
-tyView Mir.TyNever = TyViewNever
-tyView Mir.TyForeign = TyViewForeign
-tyView Mir.TyLifetime = TyViewLifetime
-tyView Mir.TyConst = TyViewConst
-tyView Mir.TyErased = TyViewErased
-tyView (Mir.TyInterned nm) = TyViewInterned nm
-
--- | Convert a 'Mir.BaseSize' value to a 'BaseSizeView' value.
-baseSizeView :: Mir.BaseSize -> BaseSizeView
-baseSizeView Mir.B8    = B8View
-baseSizeView Mir.B16   = B16View
-baseSizeView Mir.B32   = B32View
-baseSizeView Mir.B64   = B64View
-baseSizeView Mir.B128  = B128View
-baseSizeView Mir.USize =
-  case Map.lookup (natValue sizeBitsRepr) bitSizesMap of
-    Just bsv -> bsv
-    Nothing ->
-      error $ "Mir.Intrinsics.BaseSize bit size not supported: " ++ show sizeBitsRepr
-  where
-    sizeBitsRepr = knownNat @Mir.SizeBits
-
-    bitSizesMap :: Map Natural BaseSizeView
-    bitSizesMap = Map.fromList
-      [ (natValue (knownNat @8),   B8View)
-      , (natValue (knownNat @16),  B16View)
-      , (natValue (knownNat @32),  B32View)
-      , (natValue (knownNat @64),  B64View)
-      , (natValue (knownNat @128), B128View)
-      ]
-
--- | Convert a 'Mir.Substs' value to a 'SubstsView' value.
-substsView :: Mir.Substs -> SubstsView
-substsView (Mir.Substs tys) = SubstsView (map tyView tys)
-
--- | Convert a 'Mir.FnSig' value to a 'FnSigView' value.
-fnSigView :: Mir.FnSig -> FnSigView
-fnSigView (Mir.FnSig argTys retTy abi spreadarg) =
-  FnSigView (map tyView argTys) (tyView retTy) abi spreadarg
-
 -- | Returns the Cryptol type of a MIR type, returning 'Nothing' if it is not
 -- easily expressible in Cryptol's type system or if it is not currently
 -- supported.
@@ -1121,41 +967,6 @@ cryptolTypeOfActual mty =
     baseSizeType Mir.B64   = Just $ Cryptol.tWord $ Cryptol.tNum (64 :: Integer)
     baseSizeType Mir.B128  = Just $ Cryptol.tWord $ Cryptol.tNum (128 :: Integer)
     baseSizeType Mir.USize = Just $ Cryptol.tWord $ Cryptol.tNum $ natValue $ knownNat @Mir.SizeBits
-
--- | Allocate memory for each 'mir_alloc' or 'mir_alloc_mut'.
-doAlloc ::
-     MIRCrucibleContext
-  -> Some MirAllocSpec
-  -> StateT (Crucible.SymGlobalState Sym) IO (Some (MirPointer Sym))
-doAlloc cc (Some ma) =
-  mccWithBackend cc $ \bak ->
-  do let col = cc ^. mccRustModule ^. Mir.rmCS ^. Mir.collection
-     let halloc = cc^.mccHandleAllocator
-     let sym = backendGetSym bak
-     let iTypes = Mir.mirIntrinsicTypes
-     Some tpr <- pure $ Mir.tyToRepr col (ma^.maMirType)
-
-     -- Create an uninitialized `MirVector_PartialVector` of length 1 and
-     -- return a pointer to its element.
-     ref <- liftIO $
-       Mir.newMirRefIO sym halloc (Mir.MirVectorRepr tpr)
-
-     globals <- get
-     globals' <- liftIO $ do
-       one <- W4.bvLit sym W4.knownRepr $ BV.mkBV W4.knownRepr 1
-       vec <- Mir.mirVector_uninitIO bak one
-       Mir.writeMirRefIO bak globals iTypes ref vec
-     put globals'
-
-     ptr <- liftIO $ do
-       zero <- W4.bvLit sym W4.knownRepr $ BV.mkBV W4.knownRepr 0
-       Mir.subindexMirRefIO bak iTypes tpr ref zero
-     pure $ Some MirPointer
-       { _mpType = tpr
-       , _mpMutbl = ma^.maMutbl
-       , _mpMirType = ma^.maMirType
-       , _mpRef = ptr
-       }
 
 -- | Given a function name @fnName@, attempt to look up its corresponding
 -- 'Mir.DefId'. Currently, the following types of function names are permittd:

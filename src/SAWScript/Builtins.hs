@@ -1230,6 +1230,15 @@ provePrim script t = do
     _ -> return ()
   return res
 
+-- TODO: Docs
+proveBisimulation ::
+  ProofScript () ->
+  TypedTerm ->
+  TypedTerm ->
+  TypedTerm ->
+  TopLevel ProofResult
+proveBisimulation script relation lhs rhs = undefined
+
 proveHelper ::
   String ->
   ProofScript () ->

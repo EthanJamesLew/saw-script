@@ -1629,6 +1629,12 @@ primitives = Map.fromList
     , "proof or a counter-example."
     ]
 
+  -- TODO: Move this
+  , prim "prove_bisim"         "TODO: Type"
+    (pureVal proveBisimulation)
+    Experimental
+    [ "TODO: Docs" ]
+
   , prim "prove_print"         "ProofScript () -> Term -> TopLevel Theorem"
     (pureVal provePrintPrim)
     Current

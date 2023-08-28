@@ -128,7 +128,8 @@ import SAWScript.Value (ProofScript, printOutLnTop, AIGNetwork)
 import SAWScript.SolverCache
 import SAWScript.SolverVersions
 
-import SAWScript.Crucible.Common.MethodSpec (ppTypedTermType)
+-- TODO: Remove ppTypedTerm
+import SAWScript.Crucible.Common.MethodSpec (ppTypedTermType, ppTypedTerm)
 import SAWScript.Prover.Util(checkBooleanSchema)
 import SAWScript.Prover.SolverStats
 import qualified SAWScript.Prover.SBV as Prover
@@ -138,6 +139,9 @@ import qualified SAWScript.Prover.What4 as Prover
 import qualified SAWScript.Prover.Exporter as Prover
 import qualified SAWScript.Prover.MRSolver as Prover
 import SAWScript.VerificationSummary
+
+import Debug.Trace
+import Cryptol.Utils.PP (pretty)
 
 showPrim :: SV.Value -> TopLevel String
 showPrim v = do
@@ -1237,7 +1241,66 @@ proveBisimulation ::
   TypedTerm ->
   TypedTerm ->
   TopLevel ProofResult
-proveBisimulation script relation lhs rhs = undefined
+proveBisimulation script relation lhs rhs = do
+  sc <- getSharedContext
+  -- TODO: Need to typecheck terms, then generate a function that takes expected
+  -- arg types for bisim theorem statement. Can then just pass that generated
+  -- Term into provePrim? I think there's also a way convert a Term into a
+  -- TypedTerm (which we'll need for the provePrim call).
+  -- Also need to generate a counterexample. How do we do this?
+  traceM $ "relation: " ++ show (ppTypedTerm relation)
+  traceM $ "lhs: " ++ show (ppTypedTerm lhs)
+  traceM $ "rhs: " ++ show (ppTypedTerm rhs)
+  traceM $ "s1Type: " ++ show (pretty s1Type)
+  traceM $ "s2Type: " ++ show (pretty s2Type)
+  traceM $ "inputType: " ++ show (pretty inputType)
+  traceM $ "outputType: " ++ show (pretty outputType)
+
+  traceM "Ugly types:"
+  traceM $ "\nrelation: " ++ show (ttType relation)
+  traceM $ "\nlhs: " ++ show (ttType lhs)
+  traceM $ "\nrhs: " ++ show (ttType rhs)
+
+  -- TODO: Typecheck rhs
+
+  error "TODO: implement"
+
+  where
+    -- TODO: Make sure to unwrap any user types (NOTE: actually I don't think
+    -- this is necessary. The Eq instance unwraps it automatically.)
+    -- Extract s1, s2, and output types from relation
+    (s1Type, s2Type, outputType) =
+      case ttType relation of
+        TypedTermSchema
+          (C.Forall
+            []
+            []
+            (C.TCon
+              (C.TC C.TCFun)
+              [ C.TCon (C.TC (C.TCTuple 2)) [s1, o1]
+              , C.TCon
+                (C.TC C.TCFun)
+                [ C.TCon (C.TC (C.TCTuple 2)) [s2, o2]
+                , C.TCon (C.TC C.TCBit) []]]))
+          | o1 == o2 -> (s1, s2, o1)
+        _ -> error "TODO: Unexpected relation type"
+
+    -- Extract input type from LHS. Typecheck state and output type in the
+    -- process.
+    inputType =
+      case ttType lhs of
+        TypedTermSchema
+          (C.Forall
+            []
+            []
+            (C.TCon
+              (C.TC C.TCFun)
+              [ C.TCon (C.TC (C.TCTuple 2)) [s1, i]
+              , C.TCon (C.TC (C.TCTuple 2)) [s1', o] ]))
+          | s1 == s1Type && s1' == s1Type && o == outputType -> i
+        _ -> error "TODO: Unexpected lhs type"
+
+
 
 proveHelper ::
   String ->

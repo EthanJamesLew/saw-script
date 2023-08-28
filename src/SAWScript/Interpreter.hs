@@ -794,7 +794,7 @@ print_value v = do
 readSchema :: String -> SS.Schema
 readSchema str =
   case parseSchema (lexSAW "internal" str) of
-    Left err -> error (show err)
+    Left err -> error $ (show err)  ++ " : " ++ str -- TODO: Remove debug info
     Right schema -> schema
 
 data Primitive
@@ -1630,7 +1630,7 @@ primitives = Map.fromList
     ]
 
   -- TODO: Move this
-  , prim "prove_bisim"         "TODO: Type"
+  , prim "prove_bisim"         "ProofScript () -> Term -> Term -> Term -> TopLevel ProofResult"
     (pureVal proveBisimulation)
     Experimental
     [ "TODO: Docs" ]

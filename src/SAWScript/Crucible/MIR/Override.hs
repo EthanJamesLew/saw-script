@@ -15,7 +15,6 @@ module SAWScript.Crucible.MIR.Override
   , learnCond
   , matchArg
   , decodeMIRVal
-  , firstPointsToReferent
   ) where
 
 import qualified Control.Exception as X
@@ -36,16 +35,13 @@ import qualified Prettyprinter as PP
 
 import qualified Cryptol.TypeCheck.AST as Cryptol
 import qualified Cryptol.Eval.Type as Cryptol (TValue(..), evalType)
-import qualified Lang.Crucible.Backend as Crucible
 import qualified Lang.Crucible.Simulator as Crucible
-import qualified Lang.Crucible.Types as Crucible
 import qualified Mir.Generator as Mir
 import qualified Mir.Intrinsics as Mir
 import Mir.Intrinsics (MIR)
 import qualified Mir.Mir as Mir
 import qualified What4.Expr as W4
 import qualified What4.Interface as W4
-import qualified What4.Partial as W4
 import qualified What4.ProgramLoc as W4
 
 import Verifier.SAW.Prelude (scEq)
@@ -146,18 +142,6 @@ enforceDisjointness cc loc ss =
         , (_, Some p) : ps <- tails mems
         , (_, Some q)      <- ps
         ]
-
--- | @mir_points_to@ always creates a 'MirPointsTo' value with exactly one
--- referent on the right-hand side. As a result, this function should never
--- fail.
-firstPointsToReferent ::
-  MonadFail m => [MS.SetupValue MIR] -> m (MS.SetupValue MIR)
-firstPointsToReferent referents =
-  case referents of
-    [referent] -> pure referent
-    _ -> fail $
-      "Unexpected mir_points_to statement with " ++ show (length referents) ++
-      " referent(s)"
 
 instantiateExtResolveSAWPred ::
   SharedContext ->
@@ -412,29 +396,6 @@ mkStructuralMismatch _opts cc _sc spec (MIRVal shp _) setupval mty = do
             (MS.ppSetupValue setupval)
             (Just setupTy)
             mty
-
-readMaybeType ::
-     Crucible.IsSymInterface sym
-  => sym
-  -> String
-  -> Crucible.TypeRepr tp
-  -> Crucible.RegValue sym (Crucible.MaybeType tp)
-  -> IO (Crucible.RegValue sym tp)
-readMaybeType sym desc tpr rv =
-  case readPartExprMaybe sym rv of
-    Just x -> return x
-    Nothing -> error $ "readMaybeType: accessed possibly-uninitialized " ++ desc ++
-        " of type " ++ show tpr
-
-readPartExprMaybe ::
-     Crucible.IsSymInterface sym
-  => sym
-  -> W4.PartExpr (W4.Pred sym) a
-  -> Maybe a
-readPartExprMaybe _sym W4.Unassigned = Nothing
-readPartExprMaybe _sym (W4.PE p v)
-  | Just True <- W4.asConstantPred p = Just v
-  | otherwise = Nothing
 
 resolveAllocIndexMIR :: AllocIndex -> OverrideMatcher MIR w (Some (MirPointer Sym))
 resolveAllocIndexMIR i =

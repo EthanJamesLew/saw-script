@@ -1261,7 +1261,10 @@ proveBisimulation script relation lhs rhs = do
   traceM $ "\nlhs: " ++ show (ttType lhs)
   traceM $ "\nrhs: " ++ show (ttType rhs)
 
-  -- TODO: Typecheck rhs
+  -- Typecheck RHS
+  -- TODO: Test this typechecking actually runs
+  unless (typecheckSide rhs == inputType) $
+    error "TODO: RHS failed to typecheck"
 
   error "TODO: implement"
 
@@ -1285,10 +1288,9 @@ proveBisimulation script relation lhs rhs = do
           | o1 == o2 -> (s1, s2, o1)
         _ -> error "TODO: Unexpected relation type"
 
-    -- Extract input type from LHS. Typecheck state and output type in the
-    -- process.
-    inputType =
-      case ttType lhs of
+    typecheckSide :: TypedTerm -> C.Type
+    typecheckSide side =
+      case ttType side of
         TypedTermSchema
           (C.Forall
             []
@@ -1298,9 +1300,11 @@ proveBisimulation script relation lhs rhs = do
               [ C.TCon (C.TC (C.TCTuple 2)) [s1, i]
               , C.TCon (C.TC (C.TCTuple 2)) [s1', o] ]))
           | s1 == s1Type && s1' == s1Type && o == outputType -> i
-        _ -> error "TODO: Unexpected lhs type"
+        _ -> error "TODO: Unexpected type"
 
-
+    -- Extract input type from LHS. Typecheck state and output type in the
+    -- process.
+    inputType = typecheckSide lhs
 
 proveHelper ::
   String ->

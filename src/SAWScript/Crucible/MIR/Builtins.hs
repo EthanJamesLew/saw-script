@@ -150,10 +150,19 @@ mir_alloc_internal mut mty =
   do st <- get
      let mcc = st ^. Setup.csCrucibleContext
      let col = mcc ^. mccRustModule ^. Mir.rmCS ^. Mir.collection
+     loc <- getW4Position "mir_alloc"
      Some tpr <- pure $ Mir.tyToRepr col mty
      n <- Setup.csVarCounter <<%= MS.nextAllocIndex
+     tags <- view Setup.croTags
+     let md = MS.ConditionMetadata
+              { MS.conditionLoc = loc
+              , MS.conditionTags = tags
+              , MS.conditionType = "fresh allocation"
+              , MS.conditionContext = ""
+              }
      Setup.currentState . MS.csAllocs . at n ?=
-       Some (MirAllocSpec { _maType = tpr
+       Some (MirAllocSpec { _maConditionMetadata = md
+                          , _maType = tpr
                           , _maMutbl = mut
                           , _maMirType = mty
                           , _maLen = 1

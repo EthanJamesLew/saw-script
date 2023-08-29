@@ -10,6 +10,7 @@
 -- | Turns 'SetupValue's back into 'MIRVal's.
 module SAWScript.Crucible.MIR.ResolveSetupValue
   ( MIRVal(..)
+  , ppMIRVal
   , resolveSetupVal
   , typeOfSetupValue
   , lookupAllocIndex
@@ -34,17 +35,19 @@ import           Data.Map (Map)
 import qualified Data.Map as Map
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some (Some(..))
+import qualified Data.Parameterized.TraversableFC as FC
 import           Data.Text (Text)
 import qualified Data.Vector as V
 import           Data.Vector (Vector)
 import           Data.Void (absurd)
 import           Numeric.Natural (Natural)
+import qualified Prettyprinter as PP
 
 import qualified Cryptol.Eval.Type as Cryptol (TValue(..), tValTy, evalValType)
 import qualified Cryptol.TypeCheck.AST as Cryptol (Type, Schema(..))
 import qualified Cryptol.Utils.PP as Cryptol (pp)
 import Lang.Crucible.Backend (IsSymInterface)
-import Lang.Crucible.Simulator (RegValue, RegValue'(..))
+import Lang.Crucible.Simulator (AnyValue(..), RegValue, RegValue'(..))
 import Lang.Crucible.Types (MaybeType, TypeRepr(..))
 import qualified Mir.DefId as Mir
 import qualified Mir.Generator as Mir
@@ -76,6 +79,73 @@ import SAWScript.Panic
 -- existentially. SAW's MIR backend passes around 'MIRVal's at simulation time.
 data MIRVal where
   MIRVal :: TypeShape tp -> RegValue Sym tp -> MIRVal
+
+-- | Pretty-print a 'MIRVal'.
+ppMIRVal ::
+  forall ann.
+  Sym ->
+  MIRVal ->
+  PP.Doc ann
+ppMIRVal sym (MIRVal shp val) =
+  case shp of
+    UnitShape _ ->
+      PP.pretty val
+    PrimShape _ _ ->
+      W4.printSymExpr val
+    TupleShape _ _ fldShp ->
+      PP.parens $ prettyStructOrTuple fldShp val
+    ArrayShape _ _ shp' ->
+      case val of
+        Mir.MirVector_Vector vec ->
+          PP.brackets $ commaList $ V.toList $
+          fmap (\v -> ppMIRVal sym (MIRVal shp' v)) vec
+        Mir.MirVector_PartialVector vec ->
+          PP.braces $ commaList $ V.toList $
+          fmap (\v -> let v' = readMaybeType sym "vector element" (shapeType shp') v in
+                      ppMIRVal sym (MIRVal shp' v')) vec
+        Mir.MirVector_Array arr ->
+          W4.printSymExpr arr
+    StructShape _ _ fldShp
+      |  AnyValue (StructRepr fldTpr) fldVals <- val
+      ,  Just Refl <- W4.testEquality (FC.fmapFC fieldShapeType fldShp) fldTpr
+      -> PP.braces $ prettyStructOrTuple fldShp fldVals
+
+      | otherwise
+      -> error "Malformed MIRVal struct"
+    TransparentShape _ shp' ->
+      ppMIRVal sym $ MIRVal shp' val
+    RefShape _ _ _ _  ->
+      "<reference>"
+    FnPtrShape _ _ _ ->
+      PP.viaShow val
+  where
+    commaList :: [PP.Doc ann] -> PP.Doc ann
+    commaList []     = PP.emptyDoc
+    commaList (x:xs) = x PP.<> PP.hcat (map (\y -> PP.comma PP.<+> y) xs)
+
+    prettyStructOrTuple ::
+      forall ctx.
+      Ctx.Assignment FieldShape ctx ->
+      Ctx.Assignment (RegValue' Sym) ctx ->
+      PP.Doc ann
+    prettyStructOrTuple fldShp fldVals =
+      commaList $
+      map (\(Some (Functor.Pair shp' (RV v))) -> prettyField shp' v) $
+      FC.toListFC Some $
+      Ctx.zipWith Functor.Pair fldShp fldVals
+
+    prettyField ::
+      forall tp.
+      FieldShape tp ->
+      RegValue Sym tp ->
+      PP.Doc ann
+    prettyField fldShp val' =
+      case fldShp of
+        OptField shp' ->
+          ppMIRVal sym $ MIRVal shp' $
+          readMaybeType sym "field" (shapeType shp') val'
+        ReqField shp' ->
+          ppMIRVal sym $ MIRVal shp' val'
 
 type SetupValue = MS.SetupValue MIR
 

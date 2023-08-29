@@ -575,10 +575,10 @@ readMaybeType ::
   -> String
   -> TypeRepr tp
   -> RegValue sym (MaybeType tp)
-  -> IO (RegValue sym tp)
+  -> RegValue sym tp
 readMaybeType sym desc tpr rv =
   case readPartExprMaybe sym rv of
-    Just x -> return x
+    Just x -> x
     Nothing -> error $ "readMaybeType: accessed possibly-uninitialized " ++ desc ++
         " of type " ++ show tpr
 

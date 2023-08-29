@@ -467,8 +467,8 @@ valueToSC sym md failMsg tval (MIRVal shp val) =
             liftIO (scVectorReduced sc t terms)
       |  Mir.MirVector_PartialVector vals <- val
       ,  toInteger (V.length vals) == n
-      -> do vals' <- liftIO $ V.toList <$>
-              traverse (readMaybeType sym "vector element" (shapeType arrShp)) vals
+      -> do let vals' = V.toList $
+                  fmap (readMaybeType sym "vector element" (shapeType arrShp)) vals
             terms <-
               traverse (\v -> valueToSC sym md failMsg cryty (MIRVal arrShp v)) vals'
             t <- shapeToTerm sc arrShp
@@ -489,7 +489,7 @@ valueToSC sym md failMsg tval (MIRVal shp val) =
         case fldShp of
           ReqField shp' ->
             pure $ MIRVal shp' tm
-          OptField shp' -> do
-            tm' <- liftIO $ readMaybeType sym "field" (shapeType shp') tm
+          OptField shp' ->
+            let tm' = readMaybeType sym "field" (shapeType shp') tm in
             pure $ MIRVal shp' tm'
       valueToSC sym md failMsg ty mirVal
